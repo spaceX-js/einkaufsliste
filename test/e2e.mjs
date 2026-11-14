@@ -14,16 +14,17 @@ db.exec(readFileSync(new URL("../d1-schema.sql", import.meta.url), "utf8"));
 const run = (sql, args) => { const p = db.prepare(sql); if (/returning/i.test(sql)) return { results: p.all(...args) }; p.run(...args); return { results: [] }; };
 const stmt = (sql, args = []) => ({ sql, args, bind: (...a) => stmt(sql, a), all: async () => ({ results: db.prepare(sql).all(...args) }), first: async () => db.prepare(sql).get(...args) ?? null, run: async () => run(sql, args) });
 const DB = { prepare: s => stmt(s), batch: async l => l.map(s => run(s.sql, s.args)) };
-const types = { html: "text/html; charset=utf-8", js: "text/javascript", png: "image/png", webmanifest: "application/manifest+json" };
+const types = { html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", png: "image/png", webmanifest: "application/manifest+json" };
 const ASSETS = { fetch: async req => { let p = new URL(req.url).pathname; if (p === "/") p = "/index.html"; const f = new URL("../public" + p, import.meta.url);
   return existsSync(f) ? new Response(readFileSync(f), { headers: { "Content-Type": types[p.split(".").pop()] || "application/octet-stream" } }) : new Response("nicht da", { status: 404 }); } };
 
 const salt = "00112233445566778899aabbccddeeff";
 db.prepare("INSERT INTO settings (key,value) VALUES ('pw_salt',?),('pw_hash',?),('session_secret',?),('rev','1'),('stores',?)").run(salt, await pbkdf2("geheim123", salt), "cd".repeat(32),
   JSON.stringify([{ id: "supermarkt", name: "Supermarkt" }, { id: "drogerie", name: "Drogerie" }, { id: "baumarkt", name: "Baumarkt" }]));
-const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done_at,updated_at) VALUES (?,?,?,?,?,?,?,?)");
-[["a", "Skyr", "supermarkt", "", 0], ["b", "Maggi", "supermarkt", "", 0], ["c", "Haferflocken", "supermarkt", "", 1], ["d", "Bananen", "supermarkt", "", 1], ["e", "Zahnpasta", "drogerie", "", 0]]
-  .forEach(([id, n, s, no, d], i) => ins.run(id, n, s, no, d, d ? null : "2026-11-14T0" + i + ":00:00Z", d ? "2026-11-13T0" + i + ":00:00Z" : null, "x"));
+const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done_at,updated_at,buy_count,added_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
+[["a", "Skyr", "supermarkt", "", 0, 0, "Clara"], ["b", "Maggi", "supermarkt", "", 0, 0, ""], ["c", "Haferflocken", "supermarkt", "", 1, 2, ""], ["d", "Bananen", "supermarkt", "", 1, 5, ""],
+ ["f", "Kartoffeln", "supermarkt", "", 1, 1, ""], ["e", "Zahnpasta", "drogerie", "", 0, 0, ""]]
+  .forEach(([id, n, s, no, d, bc, by], i) => ins.run(id, n, s, no, d, d ? null : "2026-11-14T0" + i + ":00:00Z", d ? "2026-11-13T0" + i + ":00:00Z" : null, "x", bc, by));
 
 const server = createServer(async (req, res) => {
   const body = ["GET", "HEAD"].includes(req.method) ? undefined : await new Promise(r => { const c = []; req.on("data", d => c.push(d)); req.on("end", () => r(Buffer.concat(c))); });
@@ -44,6 +45,18 @@ await page.goto("http://127.0.0.1:8788/");
 await page.fill("input[name=passwort]", "geheim123"); await page.click("button[type=submit]");
 await page.waitForSelector(".row");
 ok((await page.locator(".row").count()) === 2, "2 offene Einträge im Supermarkt");
+ok((await page.locator(".whobox").count()) === 1, "Frage „Wer benutzt dieses Handy?“");
+await page.click("[data-me=Jonas]"); await page.waitForTimeout(200);
+ok((await page.locator(".whobox").count()) === 0, "Jonas gewählt");
+ok((await page.locator(".grp").allTextContents()).join("|").startsWith("Kühlregal|Gewürze"), "offen nach Warengruppe: " + (await page.locator(".grp").allTextContents()).join("|"));
+ok((await page.locator(".row .by", { hasText: "von Clara" }).count()) === 1, "Skyr zeigt „von Clara“");
+const histNames = async () => (await page.locator(".hist button").allTextContents()).map(t => t.replace(/\d+×$/, ""));
+ok((await histNames()).join(",") === "Bananen,Haferflocken,Kartoffeln", "gekauft nach Häufigkeit: " + (await histNames()).join(","));
+await page.click("[data-sort=hist][data-k=group]"); await page.waitForTimeout(100);
+ok((await histNames()).join(",") === "Bananen,Kartoffeln,Haferflocken", "gekauft nach Warengruppe: " + (await histNames()).join(","));
+await page.click("[data-sort=hist][data-k=freq]"); await page.click("[data-sort=open][data-k=new]"); await page.waitForTimeout(100);
+ok((await page.locator(".grp").count()) === 0 && (await page.locator(".row .n").first().textContent()) === "Maggi", "offen nach Neueste: " + (await page.locator(".grp").count()) + " " + (await page.locator(".row .n").allTextContents()).join(","));
+await page.click("[data-sort=open][data-k=group]");
 await page.screenshot({ path: "/tmp/e2e-1.png" });
 
 await page.fill("#q", "Butter"); await page.press("#q", "Enter");
@@ -54,7 +67,8 @@ ok((await page.locator("#sugg button", { hasText: "Haferflocken" }).count()) ===
 await page.click("#sugg button"); await page.waitForTimeout(300);
 ok((await page.locator(".row .n", { hasText: "Haferflocken" }).count()) === 1, "Vorschlag übernommen");
 
-await page.click(".row .tick >> text=Skyr"); await page.waitForTimeout(400);
+await page.click(".row .tick >> text=Skyr"); await page.waitForTimeout(600);
+ok(db.prepare("SELECT buy_count FROM items WHERE id='a'").get().buy_count === 1, "Abhaken zählt Häufigkeit hoch");
 ok((await page.locator(".row .n", { hasText: "Skyr" }).count()) === 0, "Skyr abgehakt");
 ok((await page.locator(".hist button", { hasText: "Skyr" }).count()) === 1, "Skyr unter „Schon mal gekauft“");
 
@@ -66,6 +80,7 @@ await page.click("[data-store=supermarkt]");
 await page.waitForTimeout(500);
 const rows = db.prepare("SELECT name, done FROM items WHERE store='supermarkt' ORDER BY name").all();
 ok(rows.find(r => r.name === "Butter")?.done === 0, "Butter in der Datenbank");
+ok(db.prepare("SELECT added_by FROM items WHERE name='Butter'").get().added_by === "Jonas", "Butter: eingetragen von Jonas");
 ok(rows.find(r => r.name === "Skyr")?.done === 1, "Skyr in der Datenbank abgehakt");
 
 // zweites Gerät sieht die Änderung
@@ -78,10 +93,14 @@ ok((await page.locator(".row .n", { hasText: "Eier" }).count()) === 1, "erstes G
 
 // Bearbeiten
 await page.locator(".row", { hasText: "Butter" }).locator(".more").click();
-await page.fill("#e_note", "Kerrygold"); await page.click("#e_ok"); await page.waitForTimeout(300);
+await page.fill("#e_note", "Kerrygold"); await page.selectOption("#e_cat", "sonst"); await page.click("#e_ok"); await page.waitForTimeout(400);
+ok(db.prepare("SELECT cat FROM items WHERE name='Butter'").get().cat === "sonst", "Warengruppe von Hand geändert");
+ok((await page.locator(".grp").allTextContents()).includes("Sonstiges"), "Abschnitt „Sonstiges“ erscheint");
 ok((await page.locator(".row .d", { hasText: "Kerrygold" }).count()) === 1, "Notiz gespeichert");
 await page.screenshot({ path: "/tmp/e2e-2.png" });
-await page.click("[data-act=menu]"); await page.waitForTimeout(200);
+await page.click("[data-act=menu]"); await page.waitForTimeout(600);
+ok(/Benachrichtigungen einschalten|keine Benachrichtigungen|Home-Bildschirm/.test(await page.locator("#pushbox").textContent()), "Benachrichtigungs-Bereich: " + (await page.locator("#pushbox").textContent()).slice(0, 60));
+ok((await (await fetch("http://127.0.0.1:8788/sw.js")).status) === 200, "Service Worker ohne Anmeldung abrufbar");
 await page.screenshot({ path: "/tmp/e2e-3.png" });
 
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));

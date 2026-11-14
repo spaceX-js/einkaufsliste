@@ -120,3 +120,123 @@ test("Passwort ändern: altes Passwort gilt danach nicht mehr", async () => {
   assert.equal(await login(env, "geheim123"), null);
   assert.ok(await login(env, "neuesPasswort"));
 });
+
+/* ---------- v1.1: Häufigkeit, Warengruppe, Benachrichtigungen ---------- */
+import { b64u, unb64u } from "../src/push.js";
+
+// Empfänger-Gerät simulieren: eigener Schlüssel + auth-Geheimnis, kann Nachrichten entschlüsseln
+async function fakeDevice(name) {
+  const kp = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const auth = crypto.getRandomValues(new Uint8Array(16));
+  return { name, kp, endpoint: "https://push.example/" + name, keys: { p256dh: b64u(await crypto.subtle.exportKey("raw", kp.publicKey)), auth: b64u(auth) }, auth };
+}
+async function decrypt(dev, body) {
+  const b = new Uint8Array(body), salt = b.slice(0, 16), idlen = b[20], asPub = b.slice(21, 21 + idlen), ct = b.slice(21 + idlen);
+  const hk = async (s, ikm, info, n) => new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: s, info }, await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]), n * 8));
+  const asKey = await crypto.subtle.importKey("raw", asPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: asKey }, dev.kp.privateKey, 256));
+  const uaPub = unb64u(dev.keys.p256dh), te = new TextEncoder();
+  const ikm = await hk(dev.auth, shared, new Uint8Array([...te.encode("WebPush: info\0"), ...uaPub, ...asPub]), 32);
+  const cek = await hk(salt, ikm, te.encode("Content-Encoding: aes128gcm\0"), 16), nonce = await hk(salt, ikm, te.encode("Content-Encoding: nonce\0"), 12);
+  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["decrypt"]), ct));
+  assert.equal(plain[plain.length - 1], 2);
+  return JSON.parse(new TextDecoder().decode(plain.slice(0, -1)));
+}
+function pushEnv(env, status = 201) {
+  const sent = [];
+  env.PUSH_FETCH = async (url, opts) => { sent.push({ url, opts }); return new Response(null, { status: typeof status === "function" ? status(url) : status }); };
+  env.PUSH_DELAY_MS = 60;
+  const waits = [];
+  const ctx = { waitUntil: p => waits.push(p) };
+  return { sent, ctx, flush: () => Promise.all(waits) };
+}
+const postCtx = (env, ctx, cookie, path, body) => worker.fetch(new Request("https://liste.test" + path, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
+
+test("Häufigkeit: Abhaken zählt, schnelles Zurücknehmen zählt wieder ab", async () => {
+  const env = await setup(); const ck = await login(env);
+  const base = { id: "h1", name: "Skyr", store: "supermarkt", by: "Jonas" };
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });
+  let st = await (await get(env, ck, "/api/state")).json();
+  assert.equal(st.items[0].buyCount, 1);
+  assert.equal(st.items[0].addedBy, "Jonas");
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString(), by: "Clara" });   // sofort zurück = Versehen
+  st = await (await get(env, ck, "/api/state")).json();
+  assert.equal(st.items[0].buyCount, 0);
+  assert.equal(st.items[0].addedBy, "Clara");
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });
+  // abgehakt vor über 10 Minuten → wieder auf die Liste zählt NICHT ab
+  env.DB.raw.prepare("UPDATE items SET done_at = '2020-01-01T00:00:00.000Z'").run();
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });
+  st = await (await get(env, ck, "/api/state")).json();
+  assert.equal(st.items[0].buyCount, 1);
+});
+
+test("Warengruppe wird gespeichert, Unsinn wird verworfen", async () => {
+  const env = await setup(); const ck = await login(env);
+  await post(env, ck, "/api/item", { id: "w1", name: "Sumach", store: "supermarkt", cat: "gewuerz" });
+  await post(env, ck, "/api/item", { id: "w2", name: "X", store: "supermarkt", cat: "<script>" });
+  const st = await (await get(env, ck, "/api/state")).json();
+  assert.equal(st.items.find(i => i.id === "w1").cat, "gewuerz");
+  assert.equal(st.items.find(i => i.id === "w2").cat, "");
+});
+
+test("Benachrichtigung: nur der andere, Sammel-Nachricht, richtig verschlüsselt", async () => {
+  const env = await setup(); const ck = await login(env);
+  const { sent, ctx, flush } = pushEnv(env);
+  const jonas = await fakeDevice("jonas"), clara = await fakeDevice("clara");
+  const key = (await (await get(env, ck, "/api/push/key")).json()).key;
+  assert.equal(unb64u(key).length, 65);
+  for (const [d, p] of [[jonas, "Jonas"], [clara, "Clara"]])
+    assert.equal((await post(env, ck, "/api/push/subscribe", { endpoint: d.endpoint, keys: d.keys, person: p })).status, 200);
+  assert.equal((await post(env, ck, "/api/push/subscribe", { endpoint: "http://unsicher", keys: jonas.keys, person: "Jonas" })).status, 400);
+
+  // Jonas trägt drei Sachen kurz hintereinander ein
+  const t0 = Date.now();
+  await postCtx(env, ctx, ck, "/api/item", { id: "n1", name: "Skyr", store: "supermarkt", addedAt: new Date(t0).toISOString(), by: "Jonas" });
+  await postCtx(env, ctx, ck, "/api/item", { id: "n2", name: "Maggi", store: "supermarkt", addedAt: new Date(t0 + 1).toISOString(), by: "Jonas" });
+  await postCtx(env, ctx, ck, "/api/item", { id: "n3", name: "Zahnpasta", store: "drogerie", addedAt: new Date(t0 + 2).toISOString(), by: "Jonas" });
+  await flush();
+  assert.equal(sent.length, 1, "genau eine Sammel-Nachricht");
+  assert.equal(sent[0].url, clara.endpoint, "nur an Clara");
+  const msg = await decrypt(clara, sent[0].opts.body);
+  assert.equal(msg.title, "Jonas hat 3 Sachen eingetragen");
+  assert.equal(msg.body, "Supermarkt: Skyr, Maggi · Drogerie: Zahnpasta");
+  assert.equal(sent[0].opts.headers["Content-Encoding"], "aes128gcm");
+
+  // VAPID-Signatur prüfen
+  const m = sent[0].opts.headers.Authorization.match(/^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/);
+  assert.ok(m);
+  const claims = JSON.parse(new TextDecoder().decode(unb64u(m[2])));
+  assert.equal(claims.aud, "https://push.example");
+  assert.equal(claims.sub, "https://liste.test");
+  const pub = await crypto.subtle.importKey("raw", unb64u(m[4]), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, unb64u(m[3]), new TextEncoder().encode(m[1] + "." + m[2])));
+
+  // Abhaken löst keine Nachricht aus
+  await postCtx(env, ctx, ck, "/api/item", { id: "n1", name: "Skyr", store: "supermarkt", done: true, doneAt: new Date().toISOString(), by: "Clara" });
+  await flush();
+  assert.equal(sent.length, 1);
+});
+
+test("Benachrichtigung: abgemeldetes Gerät (410) wird entfernt", async () => {
+  const env = await setup(); const ck = await login(env);
+  const { sent, ctx, flush } = pushEnv(env, 410);
+  const clara = await fakeDevice("clara");
+  await post(env, ck, "/api/push/subscribe", { endpoint: clara.endpoint, keys: clara.keys, person: "Clara" });
+  await postCtx(env, ctx, ck, "/api/item", { id: "z1", name: "Eier", store: "supermarkt", addedAt: new Date().toISOString(), by: "Jonas" });
+  await flush();
+  assert.equal(sent.length, 1);
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) AS n FROM push_subs").get().n, 0);
+});
+
+test("Warengruppen-Erkennung", async () => {
+  const code = readFileSync(new URL("../public/groups.js", import.meta.url), "utf8");
+  const mod = { exports: {} }; new Function("module", code)(mod);
+  const G = mod.exports, g = n => G.guessGroup(n);
+  assert.equal(g("Bananen"), "obst"); assert.equal(g("Passierte Tomaten"), "vorrat"); assert.equal(g("Tomaten"), "obst");
+  assert.equal(g("Geiles eis"), "tk"); assert.equal(g("Reis"), "vorrat"); assert.equal(g("Reibekäse"), "kuehl");
+  assert.equal(g("Kamillentee"), "getraenke"); assert.equal(g("Olivenöl"), "vorrat"); assert.equal(g("Haarspülung"), "pflege");
+  assert.equal(g("Spülmaschinentabs"), "haushalt"); assert.equal(g("Katzenfutter feucht"), "tier"); assert.equal(g("Wunschgutschein"), "sonst");
+  assert.equal(G.groupOf({ name: "Sumach", cat: "obst" }), "obst");      // von Hand gewählt hat Vorrang
+});

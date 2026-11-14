@@ -7,7 +7,9 @@ const DEFAULT_STORES = [
   {id:"supermarkt",name:"Supermarkt"},{id:"drogerie",name:"Drogerie"},
   {id:"tier",name:"Fressnapf"},{id:"baumarkt",name:"Baumarkt"},{id:"ikea",name:"IKEA"}
 ];
-const S = { loaded:false, online:true, rev:null, items:[], stores:null, cur:null, q:"", showAllHist:false, pending:0, dirty:false };
+const S = { loaded:false, online:true, rev:null, items:[], stores:null, people:["Jonas","Clara"], cur:null, q:"", showAllHist:false, pending:0, dirty:false,
+  me:"", sortOpen:"group", sortHist:"freq", pushOn:false };
+const G = window.Groups;
 
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const norm = s => String(s||"").toLowerCase().replace(/\s+/g," ").trim();
@@ -26,9 +28,10 @@ function toast(msg, undo){
 
 /* ---------- Zwischenspeicher auf dem Gerät (für schnellen Start und ohne Netz) ---------- */
 function loadLocal(){
-  try{ const o=JSON.parse(localStorage.getItem(STORE_KEY)||"null"); if(o){ S.items=o.items||[]; S.stores=o.stores||null; S.cur=o.cur||null; if(S.items.length) S.loaded=true; } }catch(e){}
+  try{ const o=JSON.parse(localStorage.getItem(STORE_KEY)||"null"); if(o){ S.items=o.items||[]; S.stores=o.stores||null; S.cur=o.cur||null; if(S.items.length) S.loaded=true;
+    S.me=o.me||""; S.sortOpen=o.sortOpen||"group"; S.sortHist=o.sortHist||"freq"; if(Array.isArray(o.people)&&o.people.length) S.people=o.people; } }catch(e){}
 }
-function saveLocal(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify({items:S.items, stores:S.stores, cur:S.cur})); }catch(e){} }
+function saveLocal(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify({items:S.items, stores:S.stores, cur:S.cur, me:S.me, sortOpen:S.sortOpen, sortHist:S.sortHist, people:S.people})); }catch(e){} }
 
 /* ---------- Server ---------- */
 async function api(method, path, body){
@@ -49,6 +52,7 @@ async function refresh(force){
     if(S.pending){ S.dirty=true; return; }
     if(d.same){ S.rev=d.rev; return; }
     S.rev=d.rev; S.items=d.items||[]; S.stores=(d.stores&&d.stores.length)?d.stores:null; S.loaded=true;
+    if(Array.isArray(d.people)&&d.people.length) S.people=d.people;
     fixCur(); saveLocal();
     if(!$("modal").innerHTML) render(); else renderHead(true);
   }catch(e){ if(!S.loaded){ S.loaded=true; render(); } }
@@ -61,7 +65,8 @@ async function send(path, body){
   catch(e){ toast(e.message||"Speichern fehlgeschlagen – bitte nochmal versuchen."); S.dirty=true; }
   finally{ S.pending--; if(!S.pending){ S.dirty=false; refresh(true); } }
 }
-function itemBody(it){ return {id:it.id,name:it.name,store:it.store,note:it.note||"",done:!!it.done,addedAt:it.addedAt||null,doneAt:it.doneAt||null}; }
+function itemBody(it){ return {id:it.id,name:it.name,store:it.store,note:it.note||"",done:!!it.done,addedAt:it.addedAt||null,doneAt:it.doneAt||null,
+  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||""}; }
 function patchLocal(id, data){ const it=S.items.find(i=>i.id===id); if(it) Object.assign(it,data); else S.items.push(Object.assign({id},data)); saveLocal(); return S.items.find(i=>i.id===id); }
 function pushItem(it){ send("/api/item", itemBody(it)); }
 
@@ -72,16 +77,16 @@ function addItem(name, store){
   const ex = S.items.find(i=>i.store===store && norm(i.name)===norm(name));
   if(ex){
     if(!ex.done){ toast("„"+ex.name+"“ steht schon drauf"); return; }
-    pushItem(patchLocal(ex.id,{done:false, addedAt:now()})); render();
+    pushItem(patchLocal(ex.id,{done:false, addedAt:now(), addedBy:S.me||""})); render();
   } else {
     const id=uid();
-    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null})); render();
+    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||""})); render();
   }
 }
 function toggle(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null};
-  const data = it.done ? {done:false, addedAt:now()} : {done:true, doneAt:now()};
+  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0};
+  const data = it.done ? {done:false, addedAt:now(), addedBy:S.me||""} : {done:true, doneAt:now(), buyCount:(it.buyCount||0)+1};
   pushItem(patchLocal(id,data)); render();
   if(data.done) toast("„"+it.name+"“ abgehakt", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
@@ -94,8 +99,16 @@ function removeItem(id){
 }
 
 /* ---------- Anzeige ---------- */
-function openOf(store){ return S.items.filter(i=>i.store===store && !i.done).sort((a,b)=>(b.addedAt||"").localeCompare(a.addedAt||"")); }
-function histOf(store){ return S.items.filter(i=>i.store===store && i.done).sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||"")); }
+const byNew = (a,b)=>(b.addedAt||"").localeCompare(a.addedAt||"");
+const byRecent = (a,b)=>(b.doneAt||"").localeCompare(a.doneAt||"");
+const byFreq = (a,b)=>(b.buyCount||0)-(a.buyCount||0) || byRecent(a,b);
+const byGroup = then => (a,b)=>G.ORDER[G.groupOf(a)]-G.ORDER[G.groupOf(b)] || then(a,b);
+const byName = (a,b)=>a.name.localeCompare(b.name,"de",{sensitivity:"base"});
+function openOf(store){ return S.items.filter(i=>i.store===store && !i.done).sort(S.sortOpen==="group"?byGroup(byName):byNew); }
+function histOf(store){ return S.items.filter(i=>i.store===store && i.done).sort(S.sortHist==="group"?byGroup(byFreq):byFreq); }
+// Liste in Abschnitte je Warengruppe teilen
+function chunks(list){ const out=[]; for(const i of list){ const g=G.groupOf(i); if(!out.length||out[out.length-1].g!==g) out.push({g,items:[]}); out[out.length-1].items.push(i); } return out; }
+function seg(name, cur, opts){ return '<span class="mini-seg">'+opts.map(([k,l])=>'<button class="'+(cur===k?'on':'')+'" data-sort="'+name+'" data-k="'+k+'">'+l+'</button>').join("")+'</span>'; }
 function fixCur(){ if(!stores().find(s=>s.id===S.cur)) S.cur=stores()[0].id; }
 
 function storeBtns(){
@@ -136,13 +149,22 @@ function render(){
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
   const open=openOf(S.cur), hist=histOf(S.cur);
-  let h='<div class="sec"><b>Einkaufen</b><span>'+(open.length?open.length+' Sache'+(open.length>1?'n':''):'')+'</span></div>';
-  if(open.length) h+='<div class="list">'+open.map(rowHtml).join("")+'</div>';
+  let h='';
+  if(!S.me) h+='<div class="whobox"><b>Wer benutzt dieses Handy?</b><div class="small">Damit der andere erfährt, wer etwas eingetragen hat.</div><div class="chips">'+
+    S.people.map(p=>'<button data-me="'+esc(p)+'">'+esc(p)+'</button>').join("")+'</div></div>';
+  h+='<div class="sec"><b>Einkaufen'+(open.length?' · '+open.length:'')+'</b>'+seg("open",S.sortOpen,[["group","Warengruppe"],["new","Neueste"]])+'</div>';
+  if(open.length){
+    if(S.sortOpen==="group") h+=chunks(open).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
+    else h+='<div class="list">'+open.map(rowHtml).join("")+'</div>';
+  }
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
-    const lim=S.showAllHist?hist.length:24;
-    h+='<div class="sec"><b>Schon mal gekauft</b><span>antippen = wieder drauf</span></div><div class="hist">';
-    h+=hist.slice(0,lim).map(i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+'</button>').join("")+'</div>';
+    const lim=S.showAllHist?hist.length:(S.sortHist==="group"?hist.length:24);
+    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
+    h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",S.sortHist,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
+    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste</div>';
+    if(S.sortHist==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
+    else h+='<div class="hist">'+hist.slice(0,lim).map(chip).join("")+'</div>';
     if(hist.length>lim) h+='<button class="linkbtn" data-act="allHist">Alle '+hist.length+' anzeigen</button>';
     else if(S.showAllHist && hist.length>24) h+='<button class="linkbtn" data-act="allHist">Weniger anzeigen</button>';
     h+='<div class="small" style="margin:8px 4px 0">Gedrückt halten, um einen Eintrag zu bearbeiten oder zu löschen.</div>';
@@ -150,7 +172,8 @@ function render(){
   app.innerHTML=h;
 }
 function rowHtml(i){
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+'</div>'+(i.note?'<div class="d">'+esc(i.note)+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button></div>';
+  const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button></div>';
 }
 
 /* ---------- Dialoge ---------- */
@@ -163,10 +186,12 @@ function sheet(inner){
 }
 function openEdit(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  let st=it.store;
+  let st=it.store; const auto=G.guessGroup(it.name);
   const m=sheet('<h3>Eintrag bearbeiten</h3>'+
     '<label class="f"><span>Was?</span><input id="e_name" maxlength="120" value="'+esc(it.name)+'"></label>'+
     '<label class="f"><span>Notiz (Menge, Marke …)</span><input id="e_note" maxlength="300" value="'+esc(it.note||"")+'" placeholder="z. B. 2×, bio, von Edeka"></label>'+
+    '<label class="f"><span>Warengruppe</span><select id="e_cat"><option value="">Automatisch ('+esc(G.groupName(auto))+')</option>'+
+      G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
     '<div class="acts"><button class="btn danger" id="e_del">Löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>');
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); });
@@ -175,13 +200,17 @@ function openEdit(id){
   $("e_ok").onclick=()=>{
     const name=$("e_name").value.trim(), note=$("e_note").value.trim();
     if(!name){ toast("Bitte einen Namen eingeben"); return; }
-    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st;
+    const cat=$("e_cat").value;
+    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat;
     if(Object.keys(data).length){ pushItem(patchLocal(id,data)); if(data.store) toast("Verschoben nach "+storeName(st)); }
     closeModal();
   };
 }
 function openMenu(){
   const m=sheet('<h3>Einstellungen</h3>'+
+    '<div class="sec" style="margin:0 0 8px"><b>Dieses Handy gehört</b></div><div class="chips" style="margin-bottom:16px">'+
+      S.people.map(p=>'<button data-mp="'+esc(p)+'" class="'+(S.me===p?'on':'')+'">'+esc(p)+'</button>').join("")+'</div>'+
+    '<div class="sec" style="margin:0 0 8px"><b>Benachrichtigungen</b></div><div id="pushbox" class="small" style="margin:0 2px 16px">Wird geprüft …</div>'+
     '<button class="btn ghost block" id="m_st">Läden bearbeiten</button>'+
     '<div class="sec" style="margin:18px 0 8px"><b>Passwort ändern</b></div>'+
     '<label class="f"><span>Aktuelles Passwort</span><input id="pw_old" type="password" autocomplete="current-password"></label>'+
@@ -191,6 +220,8 @@ function openMenu(){
     '<div class="acts" style="margin-top:18px"><button class="btn danger" id="m_out">Abmelden</button><button class="btn" id="m_x">Schließen</button></div>');
   $("m_x").onclick=closeModal;
   $("m_st").onclick=openStores;
+  m.querySelectorAll("[data-mp]").forEach(b=>b.onclick=()=>{ setMe(b.dataset.mp); m.querySelectorAll("[data-mp]").forEach(x=>x.classList.toggle("on",x===b)); drawPush(); });
+  drawPush();
   $("m_out").onclick=()=>{ try{ localStorage.removeItem(STORE_KEY); }catch(e){} location.href="/logout"; };
   $("m_pw").onclick=()=>{
     const o=$("pw_old").value, n=$("pw_new").value;
@@ -223,6 +254,53 @@ function openStores(){
   draw();
 }
 
+/* ---------- Wer bin ich & Benachrichtigungen ---------- */
+function setMe(p){ S.me=p; saveLocal(); if(S.pushOn) enablePush(true).catch(()=>{}); }
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone===true;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+function keyBytes(b64){ const s=b64.replace(/-/g,"+").replace(/_/g,"/"); const bin=atob(s+"===".slice((s.length+3)%4)); return Uint8Array.from(bin,c=>c.charCodeAt(0)); }
+async function swReg(){ return navigator.serviceWorker.register("/sw.js",{scope:"/"}).then(()=>navigator.serviceWorker.ready); }
+async function currentSub(){ if(!pushSupported()) return null; try{ const r=await navigator.serviceWorker.getRegistration("/"); return r ? await r.pushManager.getSubscription() : null; }catch(e){ return null; } }
+async function enablePush(silent){
+  if(!S.me) throw new Error("Bitte zuerst oben auswählen, wem dieses Handy gehört.");
+  const reg=await swReg();
+  if(Notification.permission!=="granted"){
+    const p=await Notification.requestPermission();
+    if(p!=="granted") throw new Error("Benachrichtigungen wurden nicht erlaubt. Du kannst sie in den Einstellungen des Handys erlauben.");
+  }
+  const {key}=await api("GET","/api/push/key");
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:keyBytes(key)});
+  const j=sub.toJSON();
+  await api("POST","/api/push/subscribe",{endpoint:j.endpoint, keys:j.keys, person:S.me});
+  S.pushOn=true;
+  if(!silent) await api("POST","/api/push/test",{endpoint:j.endpoint});
+}
+async function disablePush(){
+  const sub=await currentSub(); if(!sub){ S.pushOn=false; return; }
+  try{ await api("POST","/api/push/unsubscribe",{endpoint:sub.endpoint}); }catch(e){}
+  await sub.unsubscribe(); S.pushOn=false;
+}
+async function drawPush(){
+  const box=$("pushbox"); if(!box) return;
+  const other=S.people.filter(p=>p!==S.me).join(" / ")||"der andere";
+  if(!pushSupported()){
+    box.innerHTML = isIOS && !isStandalone()
+      ? 'Auf dem iPhone gehen Benachrichtigungen nur, wenn die Liste auf dem Home-Bildschirm liegt: unten auf <b>Teilen</b> → <b>Zum Home-Bildschirm</b>, dann die Liste von dort öffnen und hier einschalten.'
+      : 'Dieser Browser kann keine Benachrichtigungen empfangen.';
+    return;
+  }
+  const sub=await currentSub(); S.pushOn=!!sub && Notification.permission==="granted";
+  box.innerHTML = (S.pushOn
+      ? '✓ An. Du bekommst eine Nachricht, wenn '+esc(other)+' etwas einträgt.<div class="acts" style="margin-top:8px"><button class="btn ghost" id="p_test">Testen</button><button class="btn danger" id="p_off">Ausschalten</button></div>'
+      : 'Bekomme eine Nachricht, wenn '+esc(other)+' etwas auf die Liste setzt.<button class="btn block" style="margin-top:8px" id="p_on">Benachrichtigungen einschalten</button>');
+  const busy=(b,t)=>{ b.disabled=true; b.textContent=t; };
+  if($("p_on")) $("p_on").onclick=e=>{ busy(e.target,"Wird eingeschaltet …"); enablePush().then(()=>{ toast("Eingeschaltet – eine Test-Nachricht ist unterwegs"); drawPush(); }).catch(err=>{ toast(err.message||"Hat nicht geklappt"); drawPush(); }); };
+  if($("p_test")) $("p_test").onclick=e=>{ busy(e.target,"Gesendet …"); currentSub().then(s=>api("POST","/api/push/test",{endpoint:s.endpoint})).then(()=>toast("Test-Nachricht ist unterwegs")).catch(err=>toast(err.message)).finally(drawPush); };
+  if($("p_off")) $("p_off").onclick=e=>{ busy(e.target,"…"); disablePush().then(()=>{ toast("Benachrichtigungen aus"); drawPush(); }); };
+}
+
 /* ---------- Ereignisse ---------- */
 let pressT=null, pressed=false;
 document.addEventListener("pointerdown",e=>{
@@ -235,7 +313,9 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
-  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act]"); if(!t) return;
+  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me]"); if(!t) return;
+  if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.sortHist=t.dataset.k; saveLocal(); render(); return; }
+  if(t.dataset.me){ setMe(t.dataset.me); render(); toast("Danke, "+t.dataset.me+"! Benachrichtigungen kannst du oben rechts einschalten."); return; }
   if(t.dataset.store){ S.cur=t.dataset.store; S.showAllHist=false; saveLocal(); render(); window.scrollTo(0,0); return; }
   if(t.dataset.tick) toggle(t.dataset.tick);
   else if(t.dataset.edit) openEdit(t.dataset.edit);
@@ -248,6 +328,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").inner
 
 /* ---------- Start ---------- */
 loadLocal(); fixCur(); render(); refresh(true);
+if(pushSupported()) navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(()=>{});
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") refresh(); });
 window.addEventListener("online",()=>refresh());
 setInterval(()=>{ if(document.visibilityState==="visible") refresh(); }, POLL_MS);

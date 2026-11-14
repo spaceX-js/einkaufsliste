@@ -107,6 +107,21 @@ label.f > span{display:block;font-size:13px;color:var(--mute);margin:0 0 5px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 8px 8px 16px;border-radius:12px;font-size:14px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.2);display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px)}
 .toast button{background:none;border:0;color:var(--acc);font-weight:700;padding:6px 8px;cursor:pointer}
 @media (prefers-color-scheme: light){ .toast button{color:#9fd8c5} }
+
+/* Sortierung, Warengruppen, Wer-bin-ich */
+.sec{align-items:center}
+.mini-seg{display:inline-flex;background:var(--line);border-radius:9px;padding:2px;gap:2px}
+.mini-seg button{border:0;background:none;border-radius:7px;padding:4px 9px;font-size:12.5px;font-weight:600;color:var(--mute);cursor:pointer}
+.mini-seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.grp{font-size:12.5px;font-weight:600;color:var(--acc);margin:12px 6px 5px}
+.grp:first-of-type{margin-top:4px}
+.hist button small{color:var(--mute);margin-left:5px;font-size:12px}
+.d .by{color:var(--acc);font-weight:600}
+.whobox{background:var(--acc-soft);color:var(--ink);border-radius:14px;padding:12px 14px;margin:12px 0 0}
+.whobox .small{margin:2px 0 10px}
+.whobox .chips button{background:var(--card);font-weight:600;padding:8px 18px}
+.sheet select{background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 18px) 52%,calc(100% - 13px) 52%;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
+.btn:disabled{opacity:.55}
 </style>
 </head>
 <body>
@@ -117,6 +132,7 @@ label.f > span{display:block;font-size:13px;color:var(--mute);margin:0 0 5px}
 <div id="modal"></div>
 <div id="toast"></div>
 
+<script src="/groups.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
