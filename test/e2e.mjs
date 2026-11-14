@@ -125,5 +125,20 @@ await page.click("#m_st"); await page.waitForTimeout(200);
 await page.fill("input[data-lx='2']", "Obi, Hornbach"); await page.click("#s_ok"); await page.waitForTimeout(600);
 ok(JSON.parse(db.prepare("SELECT value FROM settings WHERE key='stores'").get().value)[2].labels.join() === "Obi,Hornbach", "Labels für Baumarkt angelegt");
 
+// Sortierung „Schon mal gekauft“ bleibt beim Ladenwechsel und nach Neuladen
+await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
+await page.click("[data-sort=hist][data-k=group]"); await page.waitForTimeout(150);
+const histMode = async p => p.locator(".mini-seg button.on[data-sort=hist]").getAttribute("data-k");
+await page.click("[data-store=drogerie]"); await page.waitForTimeout(200);
+await page.click("[data-store=baumarkt]"); await page.waitForTimeout(200);
+await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
+ok(await histMode(page) === "group", "Sortierung „Warengruppe“ bleibt nach Ladenwechsel");
+await page.waitForTimeout(5000);
+ok(await histMode(page) === "group", "… und nach dem Abgleich mit dem Server");
+await page.reload(); await page.waitForSelector(".row"); await page.waitForTimeout(500);
+ok(await histMode(page) === "group", "… und nach dem Neuladen der App");
+// auch wenn der große Listen-Zwischenspeicher fehlt (z. B. vom Handy gelöscht)
+await page.evaluate(() => localStorage.removeItem("einkaufsliste.v1")); await page.reload(); await page.waitForSelector(".hist"); await page.waitForTimeout(300);
+ok(await histMode(page) === "group", "… und ohne Listen-Zwischenspeicher");
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

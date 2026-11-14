@@ -2,6 +2,7 @@
 "use strict";
 
 const STORE_KEY = "einkaufsliste.v1";
+const VIEW_KEY = "einkaufsliste.ansicht";   // Sortierung & Ansicht: eigener kleiner Eintrag, gilt für alle Läden
 const POLL_MS = 4000;
 const DEFAULT_STORES = [
   {id:"supermarkt",name:"Supermarkt",labels:["Aldi","Edeka","Lidl","Rewe"]},{id:"drogerie",name:"Drogerie",labels:["dm","Rossmann"]},
@@ -30,8 +31,13 @@ function toast(msg, undo){
 function loadLocal(){
   try{ const o=JSON.parse(localStorage.getItem(STORE_KEY)||"null"); if(o){ S.items=o.items||[]; S.stores=o.stores||null; S.cur=o.cur||null; if(S.items.length) S.loaded=true;
     S.me=o.me||""; S.sortOpen=o.sortOpen||"group"; S.sortHist=o.sortHist||"freq"; if(Array.isArray(o.people)&&o.people.length) S.people=o.people; } }catch(e){}
+  try{ const v=JSON.parse(localStorage.getItem(VIEW_KEY)||"null"); if(v){
+    if(v.sortOpen==="group"||v.sortOpen==="new") S.sortOpen=v.sortOpen;
+    if(v.sortHist==="freq"||v.sortHist==="group") S.sortHist=v.sortHist;
+    S.showAllHist=!!v.showAllHist; if(v.me) S.me=v.me; } }catch(e){}
 }
-function saveLocal(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify({items:S.items, stores:S.stores, cur:S.cur, me:S.me, sortOpen:S.sortOpen, sortHist:S.sortHist, people:S.people})); }catch(e){} }
+function saveView(){ try{ localStorage.setItem(VIEW_KEY, JSON.stringify({sortOpen:S.sortOpen, sortHist:S.sortHist, showAllHist:S.showAllHist, me:S.me})); }catch(e){} }
+function saveLocal(){ saveView(); try{ localStorage.setItem(STORE_KEY, JSON.stringify({items:S.items, stores:S.stores, cur:S.cur, me:S.me, sortOpen:S.sortOpen, sortHist:S.sortHist, people:S.people})); }catch(e){} }
 
 /* ---------- Server ---------- */
 async function api(method, path, body){
@@ -352,13 +358,13 @@ document.addEventListener("click",e=>{
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }
   if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.sortHist=t.dataset.k; saveLocal(); render(); return; }
   if(t.dataset.me){ setMe(t.dataset.me); render(); toast("Danke, "+t.dataset.me+"! Benachrichtigungen kannst du oben rechts einschalten."); return; }
-  if(t.dataset.store){ S.cur=t.dataset.store; S.showAllHist=false; saveLocal(); render(); window.scrollTo(0,0); return; }
+  if(t.dataset.store){ S.cur=t.dataset.store; saveLocal(); render(); window.scrollTo(0,0); return; }
   if(t.dataset.tick) toggle(t.dataset.tick);
   else if(t.dataset.edit) openEdit(t.dataset.edit);
   else if(t.dataset.readd){ if(pressed){ pressed=false; return; } const it=S.items.find(i=>i.id===t.dataset.readd); if(it){ addItem(it.name,it.store); toast("„"+it.name+"“ wieder auf der Liste"); } }
   else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){ S.q=""; addItem(it.name,S.cur); const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
   else if(t.dataset.act==="menu") openMenu();
-  else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; render(); }
+  else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; saveView(); render(); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").innerHTML) closeModal(); });
 
