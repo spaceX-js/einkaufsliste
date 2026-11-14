@@ -43,12 +43,19 @@ export default {
     } catch (e) {
       return json({ error: "Serverfehler: " + (e && e.message ? e.message : e) }, 500);
     }
+  },
+
+  // Läuft alle 5 Minuten (wrangler.jsonc → triggers.crons): „… war einkaufen“-Nachrichten verschicken
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(announceShopping(env));
   }
 };
 
 /* ---------- API ---------- */
 async function api(request, env, settings, url, ctx) {
   const path = url.pathname, method = request.method;
+  // Adresse der App merken (einmalig bzw. wenn sie sich ändert) – zeitgesteuerte Nachrichten brauchen sie als Absender
+  if (settings.origin !== url.origin && url.protocol === "https:") { await setSetting(env, "origin", url.origin).run(); settings.origin = url.origin; }
 
   if (path === "/api/state" && method === "GET") {
     const rev = Number(settings.rev || 0);
@@ -239,6 +246,48 @@ export async function notifyAdded(env, person, addedAt, origin) {
   if (!results.length) return;
   const stores = parseStores((await getSettings(env)).stores);
   await deliver(env, subs, buildMessage(person, results, stores), origin);
+}
+// „Jonas war einkaufen“: Sobald jemand 5 Minuten lang nichts mehr abgehakt hat, bekommt der andere eine Zusammenfassung.
+export const SHOPPING_QUIET_MS = 5 * 60 * 1000;
+export async function announceShopping(env, nowMs = Date.now()) {
+  const quietSince = new Date(nowMs - SHOPPING_QUIET_MS).toISOString();
+  const { results: open } = await env.DB.prepare("SELECT id, name, store, person, at FROM purchases WHERE announced = 0 ORDER BY at").all();
+  if (!open.length) return [];
+  const settings = await getSettings(env);
+  const stores = parseStores(settings.stores);
+  const byPerson = new Map();
+  for (const r of open) { if (!byPerson.has(r.person)) byPerson.set(r.person, []); byPerson.get(r.person).push(r); }
+  const sent = [];
+  for (const [person, rows] of byPerson) {
+    if (rows[rows.length - 1].at > quietSince) continue;                 // kauft noch ein – später nochmal schauen
+    const ids = rows.map(r => r.id);
+    if (person) {
+      const subs = (await env.DB.prepare("SELECT endpoint, p256dh, auth, person FROM push_subs WHERE person <> ?").bind(person).all()).results;
+      if (subs.length) {
+        const left = await env.DB.prepare("SELECT store, COUNT(*) AS n FROM items WHERE done = 0 GROUP BY store").all();
+        const msg = buildShoppingMessage(person, rows, stores, left.results);
+        await deliver(env, subs, msg, settings.origin || "https://einkaufsliste.workers.dev");
+        sent.push({ person, msg });
+      }
+    }
+    // als erledigt markieren (auch ohne Empfänger, damit nichts Altes nachträglich verschickt wird)
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      await env.DB.prepare("UPDATE purchases SET announced = 1 WHERE id IN (" + part.map(() => "?").join(",") + ")").bind(...part).run();
+    }
+  }
+  return sent;
+}
+export function buildShoppingMessage(person, rows, stores, left) {
+  const storeName = id => (stores.find(s => s.id === id) || { name: id }).name;
+  const byStore = new Map();
+  for (const r of rows) { if (!byStore.has(r.store)) byStore.set(r.store, []); byStore.get(r.store).push(r.name); }
+  const parts = [...byStore].map(([st, names]) => storeName(st) + ": " + (names.length > 5 ? names.slice(0, 5).join(", ") + " und " + (names.length - 5) + " weitere" : names.join(", ")));
+  const title = person + " war einkaufen – " + (rows.length === 1 ? "1 Sache" : rows.length + " Sachen") + " abgehakt";
+  // Was in den besuchten Läden noch offen ist
+  const rest = (left || []).filter(l => byStore.has(l.store) && l.n > 0).map(l => storeName(l.store) + " " + l.n);
+  const body = parts.join(" · ") + (rest.length ? "\nNoch offen: " + rest.join(", ") : "\nIn diesen Läden ist nichts mehr offen.");
+  return { title, body, tag: "einkauf-fertig-" + person, url: "/" };
 }
 export function buildMessage(person, items, stores) {
   const byStore = new Map();

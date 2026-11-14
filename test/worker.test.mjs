@@ -302,3 +302,58 @@ test("Statistik: jedes Abhaken wird mit Datum gespeichert, schnelle Rücknahme l
   assert.equal(d.rows.length, 2);
   assert.equal((await call(env, "/api/purchases")).status, 401, "nur angemeldet");
 });
+
+/* ---------- v1.5: „… war einkaufen“ ---------- */
+test("Einkauf erledigt: Zusammenfassung an den anderen, erst nach 5 Minuten Ruhe, nur einmal", async () => {
+  const { announceShopping } = await import("../src/index.js");
+  const env = await setup(); const ck = await login(env);
+  const { sent } = pushEnv(env);
+  const jonas = await fakeDevice("jonas"), clara = await fakeDevice("clara");
+  await post(env, ck, "/api/push/subscribe", { endpoint: jonas.endpoint, keys: jonas.keys, person: "Jonas" });
+  await post(env, ck, "/api/push/subscribe", { endpoint: clara.endpoint, keys: clara.keys, person: "Clara" });
+  assert.equal(env.DB.raw.prepare("SELECT value FROM settings WHERE key='origin'").get().value, "https://x.test");
+  // Jonas hakt im Supermarkt 3 Sachen und in der Drogerie 1 ab; 1 Sache bleibt im Supermarkt offen
+  const add = (id, name, store) => post(env, ck, "/api/item", { id, name, store, by: "Jonas", addedAt: new Date().toISOString() });
+  const tick = (id, name, store) => post(env, ck, "/api/item", { id, name, store, by: "Jonas", done: true, doneAt: new Date().toISOString() });
+  for (const [id, n, st] of [["a", "Bananen", "supermarkt"], ["b", "Skyr", "supermarkt"], ["c", "Eier", "supermarkt"], ["d", "Zahnpasta", "drogerie"], ["e", "Butter", "supermarkt"]]) await add(id, n, st);
+  for (const [id, n, st] of [["a", "Bananen", "supermarkt"], ["b", "Skyr", "supermarkt"], ["c", "Eier", "supermarkt"], ["d", "Zahnpasta", "drogerie"]]) await tick(id, n, st);
+  sent.length = 0;
+
+  assert.equal((await announceShopping(env)).length, 0, "noch keine 5 Minuten Ruhe → nichts");
+  assert.equal(sent.length, 0);
+  const later = Date.now() + 6 * 60 * 1000;
+  const out = await announceShopping(env, later);
+  assert.equal(out.length, 1);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, clara.endpoint, "nur an Clara");
+  const msg = await decrypt(clara, sent[0].opts.body);
+  assert.equal(msg.title, "Jonas war einkaufen – 4 Sachen abgehakt");
+  assert.equal(msg.body, "Supermarkt: Bananen, Skyr, Eier · Drogerie: Zahnpasta\nNoch offen: Supermarkt 1");
+  assert.equal(new URL(JSON.parse(new TextDecoder().decode(unb64u(sent[0].opts.headers.Authorization.match(/t=[^.]+\.([^.]+)\./)[1]))).sub).origin, "https://x.test");
+
+  assert.equal((await announceShopping(env, later + 10 * 60 * 1000)).length, 0, "nur einmal");
+  assert.equal(sent.length, 1);
+});
+
+test("Einkauf erledigt: zurückgenommenes Abhaken zählt nicht, Käufe ohne Person werden nicht gemeldet", async () => {
+  const { announceShopping } = await import("../src/index.js");
+  const env = await setup(); const ck = await login(env);
+  const { sent } = pushEnv(env);
+  const clara = await fakeDevice("clara");
+  await post(env, ck, "/api/push/subscribe", { endpoint: clara.endpoint, keys: clara.keys, person: "Clara" });
+  await post(env, ck, "/api/item", { id: "a", name: "Bananen", store: "supermarkt", by: "Jonas", addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "a", name: "Bananen", store: "supermarkt", by: "Jonas", done: true, doneAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "a", name: "Bananen", store: "supermarkt", by: "Jonas", addedAt: new Date().toISOString() });   // Versehen
+  await post(env, ck, "/api/item", { id: "b", name: "Eier", store: "supermarkt", addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "b", name: "Eier", store: "supermarkt", done: true, doneAt: new Date().toISOString() });       // ohne Person
+  sent.length = 0;
+  assert.equal((await announceShopping(env, Date.now() + 6 * 60 * 1000)).length, 0);
+  assert.equal(sent.length, 0);
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) AS n FROM purchases WHERE announced = 0").get().n, 0, "trotzdem als erledigt markiert");
+});
+
+test("Einkauf erledigt: Cloudflare-Zeitsteuerung ist eingerichtet", async () => {
+  const cfg = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(cfg, /"crons":\s*\["\*\/5 \* \* \* \*"\]/);
+  assert.equal(typeof worker.scheduled, "function");
+});

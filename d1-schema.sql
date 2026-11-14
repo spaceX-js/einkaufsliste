@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS purchases (
   cat     TEXT NOT NULL DEFAULT '',
   shop    TEXT NOT NULL DEFAULT '',
   person  TEXT NOT NULL DEFAULT '',
-  at      TEXT NOT NULL
+  at      TEXT NOT NULL,
+  announced INTEGER NOT NULL DEFAULT 0   -- 1 = in einer „… war einkaufen“-Nachricht enthalten
 );
 CREATE INDEX IF NOT EXISTS purchases_at ON purchases(at);
 CREATE INDEX IF NOT EXISTS purchases_item ON purchases(item_id, at);

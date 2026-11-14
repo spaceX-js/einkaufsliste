@@ -340,8 +340,8 @@ async function drawPush(){
   }
   const sub=await currentSub(); S.pushOn=!!sub && Notification.permission==="granted";
   box.innerHTML = (S.pushOn
-      ? '✓ An. Du bekommst eine Nachricht, wenn '+esc(other)+' etwas einträgt.<div class="acts" style="margin-top:8px"><button class="btn ghost" id="p_test">Testen</button><button class="btn danger" id="p_off">Ausschalten</button></div>'
-      : 'Bekomme eine Nachricht, wenn '+esc(other)+' etwas auf die Liste setzt.<button class="btn block" style="margin-top:8px" id="p_on">Benachrichtigungen einschalten</button>');
+      ? '✓ An. Du bekommst eine Nachricht, wenn '+esc(other)+' etwas einträgt oder einkaufen war.<div class="acts" style="margin-top:8px"><button class="btn ghost" id="p_test">Testen</button><button class="btn danger" id="p_off">Ausschalten</button></div>'
+      : 'Bekomme eine Nachricht, wenn '+esc(other)+' etwas auf die Liste setzt oder einkaufen war.<button class="btn block" style="margin-top:8px" id="p_on">Benachrichtigungen einschalten</button>');
   const busy=(b,t)=>{ b.disabled=true; b.textContent=t; };
   if($("p_on")) $("p_on").onclick=e=>{ busy(e.target,"Wird eingeschaltet …"); enablePush().then(()=>{ toast("Eingeschaltet – eine Test-Nachricht ist unterwegs"); drawPush(); }).catch(err=>{ toast(err.message||"Hat nicht geklappt"); drawPush(); }); };
   if($("p_test")) $("p_test").onclick=e=>{ busy(e.target,"Gesendet …"); currentSub().then(s=>api("POST","/api/push/test",{endpoint:s.endpoint})).then(()=>toast("Test-Nachricht ist unterwegs")).catch(err=>toast(err.message)).finally(drawPush); };

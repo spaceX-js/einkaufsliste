@@ -18,5 +18,8 @@
     }
   ],
 
+  // alle 5 Minuten: „… war einkaufen“-Nachricht verschicken, wenn jemand fertig ist
+  "triggers": { "crons": ["*/5 * * * *"] },
+
   "observability": { "enabled": true }
 }
