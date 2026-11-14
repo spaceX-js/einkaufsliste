@@ -23,7 +23,7 @@ db.prepare("INSERT INTO settings (key,value) VALUES ('pw_salt',?),('pw_hash',?),
   JSON.stringify([{ id: "supermarkt", name: "Supermarkt", labels: ["Aldi", "Edeka"] }, { id: "drogerie", name: "Drogerie", labels: ["dm", "Rossmann"] }, { id: "baumarkt", name: "Baumarkt" }]));
 const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done_at,updated_at,buy_count,added_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
 [["a", "Skyr", "supermarkt", "", 0, 0, "Clara"], ["b", "Maggi", "supermarkt", "", 0, 0, ""], ["c", "Haferflocken", "supermarkt", "", 1, 2, ""], ["d", "Bananen", "supermarkt", "", 1, 5, ""],
- ["f", "Kartoffeln", "supermarkt", "", 1, 1, ""], ["e", "Zahnpasta", "drogerie", "", 0, 0, ""]]
+ ["f", "Kartoffeln", "supermarkt", "", 1, 1, ""], ["e", "Zahnpasta", "drogerie", "", 0, 0, ""], ["g", "Duschgel", "drogerie", "", 1, 3, ""]]
   .forEach(([id, n, s, no, d, bc, by], i) => ins.run(id, n, s, no, d, d ? null : "2026-11-14T0" + i + ":00:00Z", d ? "2026-11-13T0" + i + ":00:00Z" : null, "x", bc, by));
 
 const server = createServer(async (req, res) => {
@@ -125,20 +125,26 @@ await page.click("#m_st"); await page.waitForTimeout(200);
 await page.fill("input[data-lx='2']", "Obi, Hornbach"); await page.click("#s_ok"); await page.waitForTimeout(600);
 ok(JSON.parse(db.prepare("SELECT value FROM settings WHERE key='stores'").get().value)[2].labels.join() === "Obi,Hornbach", "Labels für Baumarkt angelegt");
 
-// Sortierung „Schon mal gekauft“ bleibt beim Ladenwechsel und nach Neuladen
+// Sortierung „Schon mal gekauft“: jeder Laden merkt sich seine eigene
+const histMode = async p => p.locator(".mini-seg button.on[data-sort=hist]").getAttribute("data-k");
 await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
 await page.click("[data-sort=hist][data-k=group]"); await page.waitForTimeout(150);
-const histMode = async p => p.locator(".mini-seg button.on[data-sort=hist]").getAttribute("data-k");
-await page.click("[data-store=drogerie]"); await page.waitForTimeout(200);
-await page.click("[data-store=baumarkt]"); await page.waitForTimeout(200);
-await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
-ok(await histMode(page) === "group", "Sortierung „Warengruppe“ bleibt nach Ladenwechsel");
-await page.waitForTimeout(5000);
-ok(await histMode(page) === "group", "… und nach dem Abgleich mit dem Server");
-await page.reload(); await page.waitForSelector(".row"); await page.waitForTimeout(500);
-ok(await histMode(page) === "group", "… und nach dem Neuladen der App");
-// auch wenn der große Listen-Zwischenspeicher fehlt (z. B. vom Handy gelöscht)
+await page.click("[data-store=drogerie]"); await page.waitForTimeout(150);
+await page.click("[data-sort=hist][data-k=freq]"); await page.waitForTimeout(150);
+ok(await histMode(page) === "freq", "Drogerie: Häufigkeit");
+await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
+ok(await histMode(page) === "group", "Supermarkt behält Warengruppe, obwohl Drogerie auf Häufigkeit steht");
+await page.click("[data-store=drogerie]"); await page.waitForTimeout(150);
+await page.click("[data-sort=hist][data-k=group]"); await page.click("[data-sort=hist][data-k=freq]"); await page.waitForTimeout(150);
+await page.click("[data-store=supermarkt]"); await page.waitForTimeout(5000);
+ok(await histMode(page) === "group", "… auch nach dem Abgleich mit dem Server");
+await page.reload(); await page.waitForSelector(".hist"); await page.waitForTimeout(300);
+ok(await histMode(page) === "group", "… und nach dem Neuladen (Supermarkt)");
+await page.click("[data-store=drogerie]"); await page.waitForTimeout(150);
+ok(await histMode(page) === "freq", "… und nach dem Neuladen (Drogerie)");
 await page.evaluate(() => localStorage.removeItem("einkaufsliste.v1")); await page.reload(); await page.waitForSelector(".hist"); await page.waitForTimeout(300);
+await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
 ok(await histMode(page) === "group", "… und ohne Listen-Zwischenspeicher");
+
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

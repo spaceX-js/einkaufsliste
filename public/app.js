@@ -9,7 +9,9 @@ const DEFAULT_STORES = [
   {id:"tier",name:"Fressnapf"},{id:"baumarkt",name:"Baumarkt"},{id:"ikea",name:"IKEA"}
 ];
 const S = { loaded:false, online:true, rev:null, items:[], stores:null, people:["Jonas","Clara"], cur:null, q:"", showAllHist:false, pending:0, dirty:false,
-  me:"", sortOpen:"group", sortHist:"freq", pushOn:false, filter:{} };
+  me:"", sortOpen:"group", sortHist:"freq", histBy:{}, pushOn:false, filter:{} };
+// Sortierung „Schon mal gekauft“ merkt sich jeder Laden selbst; sortHist ist nur der Startwert für Läden ohne eigene Wahl
+const histMode = store => S.histBy[store] || S.sortHist;
 const G = window.Groups;
 
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -34,9 +36,10 @@ function loadLocal(){
   try{ const v=JSON.parse(localStorage.getItem(VIEW_KEY)||"null"); if(v){
     if(v.sortOpen==="group"||v.sortOpen==="new") S.sortOpen=v.sortOpen;
     if(v.sortHist==="freq"||v.sortHist==="group") S.sortHist=v.sortHist;
+    if(v.histBy && typeof v.histBy==="object") for(const k in v.histBy) if(v.histBy[k]==="freq"||v.histBy[k]==="group") S.histBy[k]=v.histBy[k];
     S.showAllHist=!!v.showAllHist; if(v.me) S.me=v.me; } }catch(e){}
 }
-function saveView(){ try{ localStorage.setItem(VIEW_KEY, JSON.stringify({sortOpen:S.sortOpen, sortHist:S.sortHist, showAllHist:S.showAllHist, me:S.me})); }catch(e){} }
+function saveView(){ try{ localStorage.setItem(VIEW_KEY, JSON.stringify({sortOpen:S.sortOpen, sortHist:S.sortHist, histBy:S.histBy, showAllHist:S.showAllHist, me:S.me})); }catch(e){} }
 function saveLocal(){ saveView(); try{ localStorage.setItem(STORE_KEY, JSON.stringify({items:S.items, stores:S.stores, cur:S.cur, me:S.me, sortOpen:S.sortOpen, sortHist:S.sortHist, people:S.people})); }catch(e){} }
 
 /* ---------- Server ---------- */
@@ -125,7 +128,7 @@ const byFreq = (a,b)=>(b.buyCount||0)-(a.buyCount||0) || byRecent(a,b);
 const byGroup = then => (a,b)=>G.ORDER[G.groupOf(a)]-G.ORDER[G.groupOf(b)] || then(a,b);
 const byName = (a,b)=>a.name.localeCompare(b.name,"de",{sensitivity:"base"});
 function openOf(store){ return S.items.filter(i=>i.store===store && !i.done).sort(S.sortOpen==="group"?byGroup(byName):byNew); }
-function histOf(store){ return S.items.filter(i=>i.store===store && i.done).sort(S.sortHist==="group"?byGroup(byFreq):byFreq); }
+function histOf(store){ return S.items.filter(i=>i.store===store && i.done).sort(histMode(store)==="group"?byGroup(byFreq):byFreq); }
 // Liste in Abschnitte je Warengruppe teilen
 function chunks(list){ const out=[]; for(const i of list){ const g=G.groupOf(i); if(!out.length||out[out.length-1].g!==g) out.push({g,items:[]}); out[out.length-1].items.push(i); } return out; }
 function seg(name, cur, opts){ return '<span class="mini-seg">'+opts.map(([k,l])=>'<button class="'+(cur===k?'on':'')+'" data-sort="'+name+'" data-k="'+k+'">'+l+'</button>').join("")+'</span>'; }
@@ -189,11 +192,11 @@ function render(){
   else if(f.length) h+='<div class="list"><div class="empty">Nichts mit Label '+f.map(esc).join(" oder ")+'.<br><span class="small">Labels vergibst du über „⋯“ am Eintrag oder beim Eintippen mit @, z. B. „Brezel @'+esc(f[0])+'“.</span></div></div>';
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
-    const lim=S.showAllHist?hist.length:(S.sortHist==="group"?hist.length:24);
+    const hm=histMode(S.cur), lim=S.showAllHist?hist.length:(hm==="group"?hist.length:24);
     const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
-    h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",S.sortHist,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
+    h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",hm,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
     h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste</div>';
-    if(S.sortHist==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
+    if(hm==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
     else h+='<div class="hist">'+hist.slice(0,lim).map(chip).join("")+'</div>';
     if(hist.length>lim) h+='<button class="linkbtn" data-act="allHist">Alle '+hist.length+' anzeigen</button>';
     else if(S.showAllHist && hist.length>24) h+='<button class="linkbtn" data-act="allHist">Weniger anzeigen</button>';
@@ -356,7 +359,7 @@ document.addEventListener("click",e=>{
   const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter]"); if(!t) return;
   if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }
-  if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.sortHist=t.dataset.k; saveLocal(); render(); return; }
+  if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.histBy[S.cur]=t.dataset.k; saveLocal(); render(); return; }
   if(t.dataset.me){ setMe(t.dataset.me); render(); toast("Danke, "+t.dataset.me+"! Benachrichtigungen kannst du oben rechts einschalten."); return; }
   if(t.dataset.store){ S.cur=t.dataset.store; saveLocal(); render(); window.scrollTo(0,0); return; }
   if(t.dataset.tick) toggle(t.dataset.tick);

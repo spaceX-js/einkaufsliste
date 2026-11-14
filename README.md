@@ -9,7 +9,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 - Eintippen + Enter fügt hinzu; ab 2 Buchstaben Vorschläge aus „Schon mal gekauft“
 - Antippen hakt ab (mit „Rückgängig“); Abgehaktes erscheint unter „Schon mal gekauft“ und lässt sich mit einem Tipp wieder auf die Liste setzen
 - „⋯“ bzw. gedrückt halten: Name, Notiz (Menge, Marke) und Laden ändern oder löschen
-- **Sortierung** (merkt sich jedes Handy): offene Sachen nach *Warengruppe* (Weg durch den Laden) oder *Neueste zuerst*; „Schon mal gekauft“ nach *Häufigkeit* oder *Warengruppe*
+- **Sortierung** (merkt sich jedes Handy): offene Sachen nach *Warengruppe* (Weg durch den Laden) oder *Neueste zuerst* (gilt für alle Läden); „Schon mal gekauft“ nach *Häufigkeit* oder *Warengruppe* (merkt sich jeder Laden einzeln)
 - **Warengruppen** werden über Stichwörter erkannt (`public/groups.js`); falsche Zuordnung im Bearbeiten-Dialog ändern
 - **Häufigkeit**: jedes Abhaken zählt +1; wird innerhalb von 10 Minuten zurückgenommen, wieder −1
 - **Benachrichtigungen**: Trägt Jonas etwas ein, bekommt Clara eine Nachricht (und umgekehrt). Mehrere Einträge kurz hintereinander werden zu einer Nachricht zusammengefasst (12 s Wartezeit). Auf dem iPhone nur, wenn die Liste auf dem Home-Bildschirm liegt (ab iOS 16.4)
