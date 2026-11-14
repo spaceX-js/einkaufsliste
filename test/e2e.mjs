@@ -20,7 +20,7 @@ const ASSETS = { fetch: async req => { let p = new URL(req.url).pathname; if (p 
 
 const salt = "00112233445566778899aabbccddeeff";
 db.prepare("INSERT INTO settings (key,value) VALUES ('pw_salt',?),('pw_hash',?),('session_secret',?),('rev','1'),('stores',?)").run(salt, await pbkdf2("geheim123", salt), "cd".repeat(32),
-  JSON.stringify([{ id: "supermarkt", name: "Supermarkt" }, { id: "drogerie", name: "Drogerie" }, { id: "baumarkt", name: "Baumarkt" }]));
+  JSON.stringify([{ id: "supermarkt", name: "Supermarkt", labels: ["Aldi", "Edeka"] }, { id: "drogerie", name: "Drogerie", labels: ["dm", "Rossmann"] }, { id: "baumarkt", name: "Baumarkt" }]));
 const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done_at,updated_at,buy_count,added_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
 [["a", "Skyr", "supermarkt", "", 0, 0, "Clara"], ["b", "Maggi", "supermarkt", "", 0, 0, ""], ["c", "Haferflocken", "supermarkt", "", 1, 2, ""], ["d", "Bananen", "supermarkt", "", 1, 5, ""],
  ["f", "Kartoffeln", "supermarkt", "", 1, 1, ""], ["e", "Zahnpasta", "drogerie", "", 0, 0, ""]]
@@ -91,10 +91,26 @@ await page2.fill("#q", "Eier"); await page2.press("#q", "Enter");
 await page.waitForTimeout(5500);
 ok((await page.locator(".row .n", { hasText: "Eier" }).count()) === 1, "erstes Gerät bekommt „Eier“ automatisch");
 
+// Labels: „Brezel @Edeka“ trägt mit Label ein, Filter blendet passend aus
+await page.fill("#q", "Brezel @edeka"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
+ok(db.prepare("SELECT shop FROM items WHERE name='Brezel'").get()?.shop === "Edeka", "„Brezel @edeka“ → Label Edeka");
+ok((await page.locator(".row .n .shop", { hasText: "Edeka" }).count()) === 1, "Label am Eintrag sichtbar");
+const openCount = async () => page.locator(".row").count();
+const before = await openCount();
+await page.click("[data-filter=Aldi]"); await page.waitForTimeout(150);
+ok((await openCount()) === before - 1 && (await page.locator(".row .n", { hasText: "Brezel" }).count()) === 0, "Filter Aldi blendet Edeka-Brezel aus");
+ok(/1 Sache für andere Geschäfte ausgeblendet/.test(await page.textContent("#app")), "Hinweis auf Ausgeblendetes");
+await page.click("[data-filter=Edeka]"); await page.waitForTimeout(150);
+ok((await openCount()) === before, "Filter Edeka zeigt Brezel + alles ohne Label");
+await page.click("[data-filter='']");
+await page.screenshot({ path: "/tmp/e2e-labels.png" });
+
 // Bearbeiten
 await page.locator(".row", { hasText: "Butter" }).locator(".more").click();
+await page.click("#e_sh [data-sh=Aldi]");
 await page.fill("#e_note", "Kerrygold"); await page.selectOption("#e_cat", "sonst"); await page.click("#e_ok"); await page.waitForTimeout(400);
 ok(db.prepare("SELECT cat FROM items WHERE name='Butter'").get().cat === "sonst", "Warengruppe von Hand geändert");
+ok(db.prepare("SELECT shop FROM items WHERE name='Butter'").get().shop === "Aldi", "Label im Dialog gesetzt");
 ok((await page.locator(".grp").allTextContents()).includes("Sonstiges"), "Abschnitt „Sonstiges“ erscheint");
 ok((await page.locator(".row .d", { hasText: "Kerrygold" }).count()) === 1, "Notiz gespeichert");
 await page.screenshot({ path: "/tmp/e2e-2.png" });
@@ -102,6 +118,9 @@ await page.click("[data-act=menu]"); await page.waitForTimeout(600);
 ok(/Benachrichtigungen einschalten|keine Benachrichtigungen|Home-Bildschirm/.test(await page.locator("#pushbox").textContent()), "Benachrichtigungs-Bereich: " + (await page.locator("#pushbox").textContent()).slice(0, 60));
 ok((await (await fetch("http://127.0.0.1:8788/sw.js")).status) === 200, "Service Worker ohne Anmeldung abrufbar");
 await page.screenshot({ path: "/tmp/e2e-3.png" });
+await page.click("#m_st"); await page.waitForTimeout(200);
+await page.fill("input[data-lx='2']", "Obi, Hornbach"); await page.click("#s_ok"); await page.waitForTimeout(600);
+ok(JSON.parse(db.prepare("SELECT value FROM settings WHERE key='stores'").get().value)[2].labels.join() === "Obi,Hornbach", "Labels für Baumarkt angelegt");
 
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

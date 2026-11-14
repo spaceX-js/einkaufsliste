@@ -53,13 +53,13 @@ async function api(request, env, settings, url, ctx) {
   if (path === "/api/state" && method === "GET") {
     const rev = Number(settings.rev || 0);
     if (url.searchParams.get("rev") === String(rev)) return json({ rev, same: true });
-    const { results } = await env.DB.prepare("SELECT id, name, store, note, done, added_at, done_at, cat, buy_count, added_by FROM items").all();
+    const { results } = await env.DB.prepare("SELECT id, name, store, note, done, added_at, done_at, cat, buy_count, added_by, shop FROM items").all();
     return json({
       rev,
       stores: parseStores(settings.stores),
       people: people(settings),
       items: results.map(r => ({ id: r.id, name: r.name, store: r.store, note: r.note || "", done: !!r.done, addedAt: r.added_at || null, doneAt: r.done_at || null,
-        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "" }))
+        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shop: r.shop || "" }))
     });
   }
 
@@ -73,13 +73,13 @@ async function api(request, env, settings, url, ctx) {
     // Häufigkeit: +1 beim Abhaken; −1, wenn innerhalb von 10 Minuten wieder zurückgenommen (Versehen/Rückgängig).
     // „Eingetragen von“ ändert sich nur, wenn etwas neu auf die Liste kommt.
     const [, bump] = await env.DB.batch([
-      env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by, shop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, store = excluded.store, note = excluded.note, done = excluded.done,
-          added_at = excluded.added_at, done_at = excluded.done_at, updated_at = excluded.updated_at, cat = excluded.cat,
+          added_at = excluded.added_at, done_at = excluded.done_at, updated_at = excluded.updated_at, cat = excluded.cat, shop = excluded.shop,
           buy_count = MAX(0, items.buy_count + CASE WHEN items.done = 0 AND excluded.done = 1 THEN 1
                                                     WHEN items.done = 1 AND excluded.done = 0 AND items.done_at > ? THEN -1 ELSE 0 END),
           added_by = CASE WHEN items.done = 1 AND excluded.done = 0 THEN excluded.added_by ELSE items.added_by END`)
-        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done ? 1 : 0), by, undoWindow),
+        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done ? 1 : 0), by, it.shop, undoWindow),
       bumpRev(env)
     ]);
     const isNewOnList = !it.done && (!prev || prev.done === 1);
@@ -152,8 +152,10 @@ export function checkItem(b) {
   const cat = typeof b.cat === "string" && CAT_RE.test(b.cat) ? b.cat : "";
   const buyCount = Math.max(0, Math.min(100000, Math.floor(Number(b.buyCount) || 0)));
   return { id: b.id, name, store: b.store, note: String(b.note || "").trim().slice(0, 300), done: !!b.done, addedAt: isoOrNull(b.addedAt), doneAt: isoOrNull(b.doneAt),
-    cat, buyCount, by: typeof b.by === "string" ? b.by : "" };
+    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: cleanLabel(b.shop) };
 }
+// Label wie „Edeka“ oder „dm“: optional, kurz, ohne Steuerzeichen
+function cleanLabel(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 30); }
 export function checkSub(b) {
   if (!b || typeof b.endpoint !== "string" || !b.keys) return null;
   let u; try { u = new URL(b.endpoint); } catch (e) { return null; }
@@ -169,7 +171,12 @@ export function checkStores(list) {
     if (!s || typeof s.id !== "string" || !STORE_RE.test(s.id) || seen.has(s.id)) return null;
     const name = String(s.name || "").trim().slice(0, 40);
     if (!name) return null;
-    seen.add(s.id); out.push({ id: s.id, name });
+    // Labels für einzelne Geschäfte (z. B. Aldi, Edeka bei „Supermarkt“) – optional
+    const labels = [], lseen = new Set();
+    for (const l of Array.isArray(s.labels) ? s.labels.slice(0, 15) : []) {
+      const c = cleanLabel(l); if (c && !lseen.has(c.toLowerCase())) { lseen.add(c.toLowerCase()); labels.push(c); }
+    }
+    seen.add(s.id); out.push(labels.length ? { id: s.id, name, labels } : { id: s.id, name });
   }
   return out;
 }
@@ -206,14 +213,14 @@ export async function notifyAdded(env, person, addedAt, origin) {
   const subs = (await env.DB.prepare("SELECT endpoint, p256dh, auth, person FROM push_subs WHERE person <> ?").bind(person).all()).results;
   if (!subs.length) return;
   const since = new Date(Date.parse(addedAt) - 15 * 60 * 1000).toISOString();
-  const { results } = await env.DB.prepare("SELECT name, store FROM items WHERE added_by = ? AND done = 0 AND added_at >= ? ORDER BY added_at").bind(person, since).all();
+  const { results } = await env.DB.prepare("SELECT name, store, shop FROM items WHERE added_by = ? AND done = 0 AND added_at >= ? ORDER BY added_at").bind(person, since).all();
   if (!results.length) return;
   const stores = parseStores((await getSettings(env)).stores);
   await deliver(env, subs, buildMessage(person, results, stores), origin);
 }
 export function buildMessage(person, items, stores) {
   const byStore = new Map();
-  for (const it of items) { if (!byStore.has(it.store)) byStore.set(it.store, []); byStore.get(it.store).push(it.name); }
+  for (const it of items) { if (!byStore.has(it.store)) byStore.set(it.store, []); byStore.get(it.store).push(it.shop ? it.name + " (" + it.shop + ")" : it.name); }
   const storeName = id => (stores.find(s => s.id === id) || { name: id }).name;
   const parts = [...byStore].map(([st, names]) => storeName(st) + ": " + (names.length > 6 ? names.slice(0, 6).join(", ") + " und " + (names.length - 6) + " weitere" : names.join(", ")));
   const title = items.length === 1 ? person + " hat „" + items[0].name + "“ eingetragen" : person + " hat " + items.length + " Sachen eingetragen";

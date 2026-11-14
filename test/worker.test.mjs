@@ -240,3 +240,32 @@ test("Warengruppen-Erkennung", async () => {
   assert.equal(g("Spülmaschinentabs"), "haushalt"); assert.equal(g("Katzenfutter feucht"), "tier"); assert.equal(g("Wunschgutschein"), "sonst");
   assert.equal(G.groupOf({ name: "Sumach", cat: "obst" }), "obst");      // von Hand gewählt hat Vorrang
 });
+
+/* ---------- v1.2: Labels für einzelne Geschäfte ---------- */
+test("Labels: am Eintrag optional, je Laden einstellbar, in der Nachricht sichtbar", async () => {
+  const env = await setup(); const ck = await login(env);
+  await post(env, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Aldi", " Edeka ", "aldi", ""] }, { id: "drogerie", name: "Drogerie" }] });
+  let st = await (await get(env, ck, "/api/state")).json();
+  assert.deepEqual(st.stores[0].labels, ["Aldi", "Edeka"], "doppelte/leere Labels entfernt");
+  assert.equal(st.stores[1].labels, undefined, "Laden ohne Labels bleibt ohne");
+
+  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shop: "Edeka", addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "l2", name: "Milch", store: "supermarkt", addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "l3", name: "X", store: "supermarkt", shop: "<b>Lidl</b>\n" });
+  st = await (await get(env, ck, "/api/state")).json();
+  const by = id => st.items.find(i => i.id === id);
+  assert.equal(by("l1").shop, "Edeka");
+  assert.equal(by("l2").shop, "", "ohne Label bleibt leer");
+  assert.equal(by("l3").shop, "bLidl/b", "Sonderzeichen entfernt");
+
+  // Label wieder entfernen
+  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shop: "" });
+  st = await (await get(env, ck, "/api/state")).json();
+  assert.equal(st.items.find(i => i.id === "l1").shop, "");
+});
+
+test("Labels: Nachricht nennt das Geschäft", async () => {
+  const { buildMessage } = await import("../src/index.js");
+  const m = buildMessage("Clara", [{ name: "Brezel", store: "supermarkt", shop: "Edeka" }, { name: "Milch", store: "supermarkt", shop: "" }], [{ id: "supermarkt", name: "Supermarkt" }]);
+  assert.equal(m.body, "Supermarkt: Brezel (Edeka), Milch");
+});
