@@ -114,6 +114,13 @@ function toggle(id){
   pushItem(patchLocal(id,data)); render();
   if(data.done) toast("„"+it.name+"“ abgehakt", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
+// Von der Liste nehmen, ohne es zu kaufen: zurück unter „Schon mal gekauft“, zählt nicht als Kauf
+function dropItem(id){
+  const it=S.items.find(i=>i.id===id); if(!it || it.done) return;
+  const before={done:false, doneAt:it.doneAt||null, addedAt:it.addedAt||null};
+  send("/api/item", Object.assign(itemBody(patchLocal(id,{done:true, doneAt:it.doneAt||null})), {skip:true})); render();
+  toast("„"+it.name+"“ von der Liste genommen", ()=>{ pushItem(patchLocal(id,before)); render(); });
+}
 function removeItem(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
   const copy=Object.assign({},it);
@@ -210,7 +217,7 @@ function render(){
 }
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button></div>';
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
 }
 
 /* ---------- Dialoge ---------- */
@@ -234,7 +241,9 @@ function openEdit(id){
       G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
     '<label class="f"><span>Labels (optional, mehrere möglich)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
-    '<div class="acts"><button class="btn danger" id="e_del">Löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>');
+    (it.done?'':'<button class="btn ghost block" id="e_drop">Von der Liste nehmen (nicht gekauft)</button>')+
+    '<div class="acts"><button class="btn danger" id="e_del">Ganz löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>'+
+    '<div class="small" style="margin:8px 2px 0">„Ganz löschen“ entfernt den Artikel auch aus „Schon mal gekauft“.</div>');
   const bindSh=()=>m.querySelectorAll("#e_sh [data-sh]").forEach(b=>b.onclick=()=>{
     const l=b.dataset.sh; shops = !l ? [] : shops.includes(l) ? shops.filter(x=>x!==l) : shops.concat([l]);
     m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
@@ -242,6 +251,7 @@ function openEdit(id){
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
   $("e_x").onclick=closeModal;
   $("e_del").onclick=()=>{ $("modal").innerHTML=""; removeItem(id); };
+  if($("e_drop")) $("e_drop").onclick=()=>{ $("modal").innerHTML=""; dropItem(id); };
   $("e_ok").onclick=()=>{
     const name=$("e_name").value.trim(), note=$("e_note").value.trim();
     if(!name){ toast("Bitte einen Namen eingeben"); return; }
@@ -475,7 +485,8 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
-  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter]"); if(!t) return;
+  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop]"); if(!t) return;
+  if(t.dataset.drop){ dropItem(t.dataset.drop); return; }
   if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }
   if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.histBy[S.cur]=t.dataset.k; saveLocal(); render(); return; }

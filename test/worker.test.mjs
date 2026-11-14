@@ -357,3 +357,30 @@ test("Einkauf erledigt: Cloudflare-Zeitsteuerung ist eingerichtet", async () => 
   assert.match(cfg, /"crons":\s*\["\*\/5 \* \* \* \*"\]/);
   assert.equal(typeof worker.scheduled, "function");
 });
+
+/* ---------- v1.6: von der Liste nehmen (nicht gekauft) ---------- */
+test("Von der Liste nehmen: kein Kauf, Häufigkeit bleibt, Rückgängig zählt nicht ab", async () => {
+  const env = await setup(); const ck = await login(env);
+  const base = { id: "r1", name: "Skyr", store: "supermarkt", by: "Jonas" };
+  const state = async () => (await (await get(env, ck, "/api/state")).json()).items.find(i => i.id === "r1");
+  const buys = () => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM purchases").get().n;
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });       // 1× gekauft
+  env.DB.raw.prepare("UPDATE items SET done_at = '2020-01-01T00:00:00.000Z'").run();
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });      // wieder drauf
+  assert.equal((await state()).buyCount, 1); assert.equal(buys(), 1);
+
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: "2020-01-01T00:00:00.000Z", skip: true });   // doch nicht
+  let it = await state();
+  assert.equal(it.done, true, "steht wieder unter „Schon mal gekauft“");
+  assert.equal(it.buyCount, 1, "Häufigkeit unverändert");
+  assert.equal(buys(), 1, "kein neuer Kauf in der Statistik");
+
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });      // Rückgängig
+  it = await state();
+  assert.equal(it.done, false); assert.equal(it.buyCount, 1, "Rückgängig zählt nicht ab"); assert.equal(buys(), 1);
+
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });       // jetzt wirklich gekauft
+  assert.equal((await state()).buyCount, 2); assert.equal(buys(), 2);
+  assert.equal(checkItem({ id: "x", name: "a", store: "s", skip: "ja" }).skip, false, "nur echtes true zählt");
+});

@@ -81,7 +81,8 @@ async function api(request, env, settings, url, ctx) {
     // „Eingetragen von“ ändert sich nur, wenn etwas neu auf die Liste kommt.
     // Statistik: jeder Kauf (offen → abgehakt) wird mit Datum festgehalten; schnelle Rücknahme löscht ihn wieder.
     const extra = [];
-    if (prev && prev.done === 0 && it.done)
+    // skip = „von der Liste nehmen, nicht gekauft“: zählt weder als Kauf noch in der Häufigkeit
+    if (prev && prev.done === 0 && it.done && !it.skip)
       extra.push(env.DB.prepare("INSERT INTO purchases (item_id, name, store, cat, shop, person, at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(it.id, it.name, it.store, it.cat, it.shop, by, now));
     if (prev && prev.done === 1 && !it.done && prev.done_at && prev.done_at > undoWindow)
       extra.push(env.DB.prepare("DELETE FROM purchases WHERE id = (SELECT id FROM purchases WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1)").bind(it.id, undoWindow));
@@ -89,10 +90,10 @@ async function api(request, env, settings, url, ctx) {
       env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by, shop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, store = excluded.store, note = excluded.note, done = excluded.done,
           added_at = excluded.added_at, done_at = excluded.done_at, updated_at = excluded.updated_at, cat = excluded.cat, shop = excluded.shop,
-          buy_count = MAX(0, items.buy_count + CASE WHEN items.done = 0 AND excluded.done = 1 THEN 1
+          buy_count = MAX(0, items.buy_count + CASE WHEN items.done = 0 AND excluded.done = 1 AND ? = 0 THEN 1
                                                     WHEN items.done = 1 AND excluded.done = 0 AND items.done_at > ? THEN -1 ELSE 0 END),
           added_by = CASE WHEN items.done = 1 AND excluded.done = 0 THEN excluded.added_by ELSE items.added_by END`)
-        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done ? 1 : 0), by, it.shop, undoWindow),
+        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done && !it.skip ? 1 : 0), by, it.shop, it.skip ? 1 : 0, undoWindow),
       ...extra,
       bumpRev(env)
     ]);
@@ -175,7 +176,7 @@ export function checkItem(b) {
   const cat = typeof b.cat === "string" && CAT_RE.test(b.cat) ? b.cat : "";
   const buyCount = Math.max(0, Math.min(100000, Math.floor(Number(b.buyCount) || 0)));
   return { id: b.id, name, store: b.store, note: String(b.note || "").trim().slice(0, 300), done: !!b.done, addedAt: isoOrNull(b.addedAt), doneAt: isoOrNull(b.doneAt),
-    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: joinShops(Array.isArray(b.shops) ? b.shops : [b.shop]) };
+    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: joinShops(Array.isArray(b.shops) ? b.shops : [b.shop]), skip: b.skip === true };
 }
 // Label wie „Edeka“ oder „dm“: optional, kurz, ohne Steuerzeichen. Mehrere Labels stehen in der Spalte shop als „Aldi|Edeka“.
 function cleanLabel(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f<>|,]/g, "").replace(/\s+/g, " ").trim().slice(0, 30); }

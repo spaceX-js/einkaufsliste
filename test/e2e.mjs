@@ -186,5 +186,22 @@ const before2 = db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n;
 await page.click(".row .tick >> nth=0"); await page.waitForTimeout(600);
 ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "Abhaken erzeugt Kauf in der Statistik");
 
+// Von der Liste nehmen (×): kein Kauf, landet unter „Schon mal gekauft“, Rückgängig holt es zurück
+{
+  await page.fill("#q", "Pesto"); await page.press("#q", "Enter"); await page.waitForTimeout(500);
+  const b0 = db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n;
+  await page.locator(".row", { hasText: "Pesto" }).locator(".drop").click(); await page.waitForTimeout(600);
+  const r = db.prepare("SELECT done, buy_count FROM items WHERE name='Pesto'").get();
+  ok(r.done === 1 && r.buy_count === 0, "× nimmt Pesto von der Liste, Häufigkeit 0");
+  ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === b0, "× erzeugt keinen Kauf");
+  ok((await page.locator(".row .n", { hasText: "Pesto" }).count()) === 0 && (await page.locator(".hist button", { hasText: "Pesto" }).count()) === 1, "Pesto steht unter „Schon mal gekauft“");
+  await page.click("#undo"); await page.waitForTimeout(600);
+  ok((await page.locator(".row .n", { hasText: "Pesto" }).count()) === 1 && db.prepare("SELECT done FROM items WHERE name='Pesto'").get().done === 0, "Rückgängig holt Pesto zurück");
+  await page.locator(".row", { hasText: "Pesto" }).locator(".more").click(); await page.waitForTimeout(150);
+  await page.click("#e_drop"); await page.waitForTimeout(600);
+  ok(db.prepare("SELECT done, buy_count FROM items WHERE name='Pesto'").get().done === 1, "auch über den Dialog „Von der Liste nehmen“");
+  await page.screenshot({ path: "/tmp/e2e-drop.png" });
+}
+
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();
