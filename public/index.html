@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Einkauf">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#f2f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex, nofollow">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="icon" href="/icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Einkaufsliste</title>
+<style>
+:root{
+  --bg:#f2f1ee; --card:#ffffff; --ink:#1d1d1b; --mute:#6f6c66; --line:#e6e3dd;
+  --acc:#2f6f5e; --acc-soft:#e3efe9; --bad:#b3261e; --r:16px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#141413; --card:#1f1f1d; --ink:#f1efe9; --mute:#a19d95; --line:#33322f;
+    --acc:#7cc4ad; --acc-soft:#1f3530; --bad:#f28b82; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit}
+*{-webkit-tap-highlight-color:transparent}
+body{touch-action:manipulation}
+.wrap{max-width:560px;margin:0 auto;padding:0 calc(16px + env(safe-area-inset-right)) calc(120px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left))}
+
+/* Kopf (klebt oben) */
+.head{position:sticky;top:0;z-index:10;background:var(--bg);padding:calc(14px + env(safe-area-inset-top)) 16px 10px;margin:0 -16px}
+.net{font-size:12px;font-weight:600;color:var(--bad);margin-left:8px}
+.title{display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px}
+h1{font-size:26px;margin:0;letter-spacing:-.02em}
+.iconbtn{background:none;border:0;color:var(--mute);padding:6px;cursor:pointer;border-radius:10px}
+.iconbtn svg{width:22px;height:22px;display:block}
+.stores{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.stores::-webkit-scrollbar{display:none}
+.store{flex:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.store .cnt{font-size:12px;font-weight:700;min-width:20px;height:20px;border-radius:10px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;background:var(--bg);color:var(--mute)}
+.store.on{background:var(--acc);border-color:var(--acc);color:#fff}
+@media (prefers-color-scheme: dark){ .store.on{color:#10201b} }
+.store.on .cnt{background:rgba(255,255,255,.25);color:inherit}
+
+/* Eingabe */
+form.add{display:flex;gap:8px;margin-top:10px}
+form.add input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;-webkit-appearance:none}
+form.add input:focus{outline:2px solid var(--acc);outline-offset:-1px}
+form.add button{border:0;border-radius:12px;background:var(--acc);color:#fff;font-weight:700;font-size:22px;width:48px;cursor:pointer}
+@media (prefers-color-scheme: dark){ form.add button{color:#10201b} }
+.sugg{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sugg button{border:1px dashed var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px;cursor:pointer}
+.sugg button small{color:var(--mute);margin-left:4px}
+
+/* Liste */
+.sec{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px}
+.sec b{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600}
+.sec span{font-size:13px;color:var(--mute)}
+.list{background:var(--card);border-radius:var(--r);border:1px solid var(--line);overflow:hidden}
+.row{display:flex;align-items:center;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.tick{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:13px 4px 13px 14px;background:none;border:0;text-align:left;cursor:pointer}
+.tick:active{background:var(--bg)}
+.box{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center}
+.row.done .box{background:var(--acc);border-color:var(--acc)}
+.box svg{width:14px;height:14px;color:#fff;opacity:0}
+.row.done .box svg{opacity:1}
+.t{min-width:0}
+.n{font-size:16px;overflow:hidden;text-overflow:ellipsis}
+.d{font-size:13px;color:var(--mute);margin-top:1px}
+.more{flex:none;background:none;border:0;color:var(--mute);padding:12px 14px;cursor:pointer;font-size:20px;line-height:1}
+.empty{text-align:center;color:var(--mute);padding:28px 16px;font-size:15px}
+.hist{display:flex;flex-wrap:wrap;gap:6px}
+.hist button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 12px;font-size:14px;cursor:pointer}
+.hist button:before{content:"+ ";color:var(--acc);font-weight:700}
+.linkbtn{background:none;border:0;color:var(--acc);font-weight:600;font-size:14px;padding:10px 4px;cursor:pointer}
+.alert{border-radius:12px;padding:10px 12px;font-size:14px;margin:12px 0 0;background:var(--acc-soft);color:var(--acc)}
+
+/* Dialog */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;animation:up .2s ease-out}
+@media (min-width:600px){ .scrim{align-items:center} .sheet{border-radius:20px} }
+@keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+.sheet h3{margin:0 0 14px;font-size:19px}
+label.f{display:block;margin:0 0 12px}
+label.f > span{display:block;font-size:13px;color:var(--mute);margin:0 0 5px}
+.sheet input,.sheet select{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;-webkit-appearance:none;appearance:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 12px;font-size:14px;cursor:pointer}
+.chips button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.acts{display:flex;gap:8px;margin-top:14px}
+.btn{flex:1;border:0;border-radius:12px;padding:12px 16px;font-weight:600;background:var(--acc);color:#fff;cursor:pointer}
+@media (prefers-color-scheme: dark){ .btn,.chips button.on{color:#10201b} }
+.btn.ghost{background:transparent;color:var(--acc);border:1px solid var(--line)}
+.btn.block{display:block;width:100%;margin-bottom:8px}
+.btn.danger{background:transparent;color:var(--bad);border:1px solid var(--line)}
+.srow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.srow input{flex:1}
+.srow button{flex:none;background:var(--bg);border:1px solid var(--line);border-radius:10px;width:40px;height:44px;cursor:pointer;color:var(--mute)}
+.small{font-size:13px;color:var(--mute)}
+.spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp 1s linear infinite;margin:0 auto 12px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 8px 8px 16px;border-radius:12px;font-size:14px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.2);display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px)}
+.toast button{background:none;border:0;color:var(--acc);font-weight:700;padding:6px 8px;cursor:pointer}
+@media (prefers-color-scheme: light){ .toast button{color:#9fd8c5} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head" id="head"></div>
+  <main id="app"><div class="empty"><div class="spin"></div>Liste wird geladen …</div></main>
+</div>
+<div id="modal"></div>
+<div id="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "Einkaufsliste",
+  "short_name": "Einkauf",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f1ee",
+  "theme_color": "#2f6f5e",
+  "icons": [
+    { "src": "/icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
