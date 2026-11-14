@@ -32,3 +32,17 @@ CREATE TABLE IF NOT EXISTS push_subs (
   person     TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Statistik: ein Eintrag pro Kauf (abgehakt), mit Datum
+CREATE TABLE IF NOT EXISTS purchases (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  store   TEXT NOT NULL,
+  cat     TEXT NOT NULL DEFAULT '',
+  shop    TEXT NOT NULL DEFAULT '',
+  person  TEXT NOT NULL DEFAULT '',
+  at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS purchases_at ON purchases(at);
+CREATE INDEX IF NOT EXISTS purchases_item ON purchases(item_id, at);

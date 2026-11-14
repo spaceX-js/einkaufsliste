@@ -9,7 +9,8 @@ const DEFAULT_STORES = [
   {id:"tier",name:"Fressnapf"},{id:"baumarkt",name:"Baumarkt"},{id:"ikea",name:"IKEA"}
 ];
 const S = { loaded:false, online:true, rev:null, items:[], stores:null, people:["Jonas","Clara"], cur:null, q:"", showAllHist:false, pending:0, dirty:false,
-  me:"", sortOpen:"group", sortHist:"freq", histBy:{}, pushOn:false, filter:{} };
+  me:"", sortOpen:"group", sortHist:"freq", histBy:{}, pushOn:false, filter:{},
+  view:"list", st:{ range:"week", offset:0, store:"", rows:null, first:null, loading:false, err:"", topAll:false, tip:"" } };
 // Sortierung „Schon mal gekauft“ merkt sich jeder Laden selbst; sortHist ist nur der Startwert für Läden ohne eigene Wahl
 const histMode = store => S.histBy[store] || S.sortHist;
 const G = window.Groups;
@@ -139,8 +140,10 @@ function storeBtns(){
     return '<button class="store'+(s.id===S.cur?' on':'')+'" data-store="'+esc(s.id)+'">'+esc(s.name)+'<span class="cnt">'+n+'</span></button>'; }).join("");
 }
 const GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>';
+const CHART='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>';
 function renderHead(light){
   const h=$("head");
+  if(S.view==="stats") return;
   if(light && $("storebar")){
     // Nur Läden, Platzhalter und Status aktualisieren, damit das Eingabefeld (und die Tastatur) stehen bleibt
     $("storebar").innerHTML=storeBtns();
@@ -148,7 +151,7 @@ function renderHead(light){
     $("net").textContent = S.online ? "" : "offline";
     renderSugg(); return;
   }
-  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></div>'+
+  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
     '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
     '<div class="sugg" id="sugg"></div>';
@@ -168,6 +171,7 @@ function renderSugg(){
   el.innerHTML=hits.map(i=>'<button data-sugg="'+esc(i.id)+'">'+esc(i.name)+(i.store!==S.cur?'<small>'+esc(storeName(i.store))+'</small>':'')+'</button>').join("");
 }
 function render(){
+  if(S.view==="stats"){ renderStats(); return; }
   renderHead(!!$("storebar"));
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
@@ -344,6 +348,121 @@ async function drawPush(){
   if($("p_off")) $("p_off").onclick=e=>{ busy(e.target,"…"); disablePush().then(()=>{ toast("Benachrichtigungen aus"); drawPush(); }); };
 }
 
+/* ---------- Statistik ---------- */
+const MON=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+const MONL=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+const WD=["Mo","Di","Mi","Do","Fr","Sa","So"];
+const dayKey = d => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
+function startOfWeek(d){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
+function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-day+3);
+  const fy=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-fy)/86400000-3+((fy.getUTCDay()+6)%7))/7); }
+// Zeitraum (lokale Zeit): Beginn, Ende, Beschriftung und Unterteilung für den Verlauf
+function period(range, offset){
+  const now=new Date(); let from,to,label,buckets=[];
+  if(range==="week"){
+    from=startOfWeek(now); from.setDate(from.getDate()+7*offset); to=new Date(from); to.setDate(to.getDate()+7);
+    const last=new Date(to); last.setDate(last.getDate()-1);
+    label="KW "+isoWeek(from)+" · "+from.getDate()+". "+(from.getMonth()!==last.getMonth()?MON[from.getMonth()]+" ":"")+"– "+last.getDate()+". "+MON[last.getMonth()]+" "+last.getFullYear();
+    for(let i=0;i<7;i++){ const d=new Date(from); d.setDate(d.getDate()+i); buckets.push({from:d, label:WD[i], tip:WD[i]+" "+d.getDate()+". "+MON[d.getMonth()]}); }
+  } else if(range==="month"){
+    from=new Date(now.getFullYear(), now.getMonth()+offset, 1); to=new Date(from.getFullYear(), from.getMonth()+1, 1);
+    label=MONL[from.getMonth()]+" "+from.getFullYear();
+    for(let d=new Date(from); d<to; d.setDate(d.getDate()+1)){ const n=d.getDate(); buckets.push({from:new Date(d), label:(n===1||n%5===0)?String(n):"", tip:n+". "+MONL[d.getMonth()]}); }
+  } else {
+    from=new Date(now.getFullYear()+offset,0,1); to=new Date(from.getFullYear()+1,0,1); label=String(from.getFullYear());
+    for(let m=0;m<12;m++) buckets.push({from:new Date(from.getFullYear(),m,1), label:MON[m].slice(0,1), tip:MONL[m]+" "+from.getFullYear()});
+  }
+  buckets.forEach((b,i)=>b.to = buckets[i+1] ? buckets[i+1].from : to);
+  return {from,to,label,buckets};
+}
+async function loadStats(){
+  const st=S.st; st.loading=true; st.err=""; renderStats();
+  try{ const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
+  catch(e){ st.err=e.message||"Statistik konnte nicht geladen werden."; }
+  st.loading=false; renderStats();
+}
+function openStats(){ S.view="stats"; S.st.tip=""; window.scrollTo(0,0); renderStats(); loadStats(); }
+function closeStats(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); }
+function barsHtml(list, max, label){
+  // waagerechte Balken: Name, Balken, Zahl
+  return '<div class="hbars">'+list.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+(x.sub?'<small>'+esc(x.sub)+'</small>':'')+'</span><b>'+x.n+'</b></div>'+
+    '<div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/max*100))+'%"></span></div></div>').join("")+'</div>';
+}
+function renderStats(){
+  const st=S.st, h=$("head"), app=$("app");
+  const ranges=[["week","Woche"],["month","Monat"],["year","Jahr"]];
+  const p=period(st.range, st.offset);
+  h.innerHTML='<div class="title"><button class="backbtn" data-st="back">‹ Liste</button><h1 class="sttitle">Statistik</h1><span style="width:64px"></span></div>'+
+    '<div class="seg3">'+ranges.map(([k,l])=>'<button class="'+(st.range===k?'on':'')+'" data-st="range" data-k="'+k+'">'+l+'</button>').join("")+'</div>'+
+    '<div class="pnav"><button data-st="prev" aria-label="früher">‹</button><b>'+esc(p.label)+'</b><button data-st="next" aria-label="später"'+(st.offset>=0?' disabled':'')+'>›</button></div>'+
+    '<div class="shopbar stshops"><button class="'+(st.store?'':'on')+'" data-st="store" data-k="">Alle Läden</button>'+stores().map(s=>'<button class="'+(st.store===s.id?'on':'')+'" data-st="store" data-k="'+esc(s.id)+'">'+esc(s.name)+'</button>').join("")+'</div>';
+  if(st.err){ app.innerHTML='<div class="empty">'+esc(st.err)+'<br><button class="linkbtn" data-st="reload">Nochmal versuchen</button></div>'; return; }
+  if(!st.rows){ app.innerHTML='<div class="empty"><div class="spin"></div>Statistik wird geladen …</div>'; return; }
+  const inStore = r => !st.store || r.store===st.store;
+  const rows = st.rows.filter(r=>inStore(r) && r.at>=p.from && r.at<p.to);
+  const prevP = period(st.range, st.offset-1);
+  const prevN = st.rows.filter(r=>inStore(r) && r.at>=prevP.from && r.at<prevP.to).length;
+  const prevName = {week:"Vorwoche", month:"Vormonat", year:"Vorjahr"}[st.range];
+  const days = new Set(rows.map(r=>dayKey(r.at))).size;
+  const items = new Map(); rows.forEach(r=>{ const e=items.get(r.id)||{id:r.id,name:r.name,store:r.store,n:0}; e.n++; items.set(r.id,e); });
+  const cur = id => S.items.find(i=>i.id===id);
+  let html='';
+  // Kennzahlen
+  const diff = rows.length-prevN;
+  html+='<div class="tiles">'+
+    '<div class="tile"><div class="tv">'+rows.length+'</div><div class="tl">Sachen gekauft</div>'+(prevN||rows.length?'<div class="td">'+(diff===0?'wie':(diff>0?'+':'−')+Math.abs(diff)+' ggü.')+' '+prevName+'</div>':'')+'</div>'+
+    '<div class="tile"><div class="tv">'+items.size+'</div><div class="tl">verschiedene Artikel</div></div>'+
+    '<div class="tile"><div class="tv">'+days+'</div><div class="tl">Einkaufstage</div></div>'+
+    '<div class="tile"><div class="tv">'+(days?(Math.round(rows.length/days*10)/10).toLocaleString("de-DE"):"–")+'</div><div class="tl">Sachen pro Einkaufstag</div></div></div>';
+  if(!rows.length){
+    html+='<div class="card-s"><div class="empty" style="padding:24px 8px">In diesem Zeitraum wurde '+(st.store?'bei '+esc(storeName(st.store))+' ':'')+'nichts abgehakt.</div></div>';
+  } else {
+    // Verlauf
+    const counts=p.buckets.map(b=>rows.filter(r=>r.at>=b.from && r.at<b.to).length), max=Math.max(1,...counts);
+    html+='<div class="card-s"><div class="ch"><b>Verlauf</b><span id="sttip">'+(st.tip?esc(st.tip):'Balken antippen für Details')+'</span></div>'+
+      '<div class="vbars r-'+st.range+'"><span class="ymax">'+max+'</span>'+p.buckets.map((b,i)=>'<button class="vb" data-st="tip" data-k="'+esc(b.tip+": "+counts[i]+" "+(counts[i]===1?"Sache":"Sachen"))+'" title="'+esc(b.tip+": "+counts[i])+'">'+
+        '<span class="vbar'+(counts[i]?'':' zero')+'" style="height:'+(counts[i]?Math.max(4,counts[i]/max*100):0)+'%"></span><span class="vl">'+esc(b.label)+'</span></button>').join("")+'</div></div>';
+    // Am häufigsten gekauft
+    const top=[...items.values()].sort((a,b)=>b.n-a.n || a.name.localeCompare(b.name,"de"));
+    const shown=st.topAll?top:top.slice(0,10);
+    html+='<div class="card-s"><div class="ch"><b>Am häufigsten gekauft</b><span>'+top.length+' Artikel</span></div>'+
+      barsHtml(shown.map(x=>{ const c=cur(x.id); return {name:c?c.name:x.name, sub:st.store?"":storeName(x.store), n:x.n}; }), top[0].n)+
+      (top.length>10?'<button class="linkbtn" data-st="topall">'+(st.topAll?'Weniger anzeigen':'Alle '+top.length+' anzeigen')+'</button>':'')+'</div>';
+    // Warengruppen
+    const grp=new Map(); rows.forEach(r=>{ const c=cur(r.id); const g=G.groupOf(c||{name:r.name,cat:r.cat}); grp.set(g,(grp.get(g)||0)+1); });
+    const gl=[...grp].map(([g,n])=>({name:G.groupName(g),n})).sort((a,b)=>b.n-a.n);
+    html+='<div class="card-s"><div class="ch"><b>Nach Warengruppe</b></div>'+barsHtml(gl, gl[0].n)+'</div>';
+    // Läden und Labels
+    if(!st.store){
+      const sl=stores().map(s=>({name:s.name,n:rows.filter(r=>r.store===s.id).length})).filter(x=>x.n).sort((a,b)=>b.n-a.n);
+      if(sl.length>1) html+='<div class="card-s"><div class="ch"><b>Nach Laden</b></div>'+barsHtml(sl, sl[0].n)+'</div>';
+    }
+    const lab=new Map(); rows.forEach(r=>r.shops.forEach(l=>lab.set(l,(lab.get(l)||0)+1)));
+    if(lab.size){ const ll=[...lab].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
+      html+='<div class="card-s"><div class="ch"><b>Nach Label</b><span>nur Sachen mit Label</span></div>'+barsHtml(ll, ll[0].n)+'</div>'; }
+    // Wer hat abgehakt
+    const pp=new Map(); rows.forEach(r=>{ const k=r.person||"ohne Angabe"; pp.set(k,(pp.get(k)||0)+1); });
+    const pl=[...pp].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
+    html+='<div class="card-s"><div class="ch"><b>Wer hat abgehakt</b></div>'+barsHtml(pl, pl[0].n)+'</div>';
+  }
+  html+='<div class="small" style="margin:14px 6px 0">Gezählt wird jedes Abhaken'+(st.first?' seit '+st.first.toLocaleDateString("de-DE"):'')+
+    '. Käufe aus der alten Apple-Notiz haben kein Datum und fehlen hier – sie stecken nur in der „×“-Zahl bei „Schon mal gekauft“.</div>';
+  app.innerHTML=html;
+}
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-st]"); if(!b || S.view!=="stats") return;
+  const st=S.st, k=b.dataset.st;
+  if(k==="back") closeStats();
+  else if(k==="range"){ st.range=b.dataset.k; st.offset=0; st.tip=""; renderStats(); }
+  else if(k==="prev"){ st.offset--; st.tip=""; renderStats(); }
+  else if(k==="next"){ if(st.offset<0) st.offset++; st.tip=""; renderStats(); }
+  else if(k==="store"){ st.store=b.dataset.k; st.tip=""; renderStats(); }
+  else if(k==="topall"){ st.topAll=!st.topAll; renderStats(); }
+  else if(k==="reload") loadStats();
+  else if(k==="tip"){ st.tip=b.dataset.k; const t=$("sttip"); if(t) t.textContent=st.tip;
+    document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
+});
+
 /* ---------- Ereignisse ---------- */
 let pressT=null, pressed=false;
 document.addEventListener("pointerdown",e=>{
@@ -367,6 +486,7 @@ document.addEventListener("click",e=>{
   else if(t.dataset.readd){ if(pressed){ pressed=false; return; } const it=S.items.find(i=>i.id===t.dataset.readd); if(it){ addItem(it.name,it.store); toast("„"+it.name+"“ wieder auf der Liste"); } }
   else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){ S.q=""; addItem(it.name,S.cur); const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
   else if(t.dataset.act==="menu") openMenu();
+  else if(t.dataset.act==="stats") openStats();
   else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; saveView(); render(); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").innerHTML) closeModal(); });

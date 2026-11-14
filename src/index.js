@@ -69,10 +69,16 @@ async function api(request, env, settings, url, ctx) {
     const by = people(settings).includes(it.by) ? it.by : "";
     const now = new Date().toISOString();
     const undoWindow = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const prev = await env.DB.prepare("SELECT done FROM items WHERE id = ?").bind(it.id).first();
+    const prev = await env.DB.prepare("SELECT done, done_at FROM items WHERE id = ?").bind(it.id).first();
     // Häufigkeit: +1 beim Abhaken; −1, wenn innerhalb von 10 Minuten wieder zurückgenommen (Versehen/Rückgängig).
     // „Eingetragen von“ ändert sich nur, wenn etwas neu auf die Liste kommt.
-    const [, bump] = await env.DB.batch([
+    // Statistik: jeder Kauf (offen → abgehakt) wird mit Datum festgehalten; schnelle Rücknahme löscht ihn wieder.
+    const extra = [];
+    if (prev && prev.done === 0 && it.done)
+      extra.push(env.DB.prepare("INSERT INTO purchases (item_id, name, store, cat, shop, person, at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(it.id, it.name, it.store, it.cat, it.shop, by, now));
+    if (prev && prev.done === 1 && !it.done && prev.done_at && prev.done_at > undoWindow)
+      extra.push(env.DB.prepare("DELETE FROM purchases WHERE id = (SELECT id FROM purchases WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1)").bind(it.id, undoWindow));
+    const results = await env.DB.batch([
       env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by, shop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, store = excluded.store, note = excluded.note, done = excluded.done,
           added_at = excluded.added_at, done_at = excluded.done_at, updated_at = excluded.updated_at, cat = excluded.cat, shop = excluded.shop,
@@ -80,11 +86,21 @@ async function api(request, env, settings, url, ctx) {
                                                     WHEN items.done = 1 AND excluded.done = 0 AND items.done_at > ? THEN -1 ELSE 0 END),
           added_by = CASE WHEN items.done = 1 AND excluded.done = 0 THEN excluded.added_by ELSE items.added_by END`)
         .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done ? 1 : 0), by, it.shop, undoWindow),
+      ...extra,
       bumpRev(env)
     ]);
+    const bump = results[results.length - 1];
     const isNewOnList = !it.done && (!prev || prev.done === 1);
     if (isNewOnList && by && it.addedAt && ctx && ctx.waitUntil) ctx.waitUntil(notifyAdded(env, by, it.addedAt, url.origin).catch(() => {}));
     return json({ ok: true, rev: revOf(bump) });
+  }
+
+  if (path === "/api/purchases" && method === "GET") {
+    // Käufe für die Statistik, kompakt: [item_id, name, store, cat, shop, person, at]
+    const since = isoOrNull(url.searchParams.get("since")) || new Date(Date.now() - 400 * 86400000).toISOString();
+    const { results } = await env.DB.prepare("SELECT item_id, name, store, cat, shop, person, at FROM purchases WHERE at >= ? ORDER BY at").bind(since).all();
+    const first = await env.DB.prepare("SELECT MIN(at) AS t FROM purchases").first();
+    return json({ since, first: first && first.t || null, rows: results.map(r => [r.item_id, r.name, r.store, r.cat || "", r.shop || "", r.person || "", r.at]) });
   }
 
   if (path === "/api/item/delete" && method === "POST") {

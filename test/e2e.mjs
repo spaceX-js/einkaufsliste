@@ -26,6 +26,15 @@ const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done
  ["f", "Kartoffeln", "supermarkt", "", 1, 1, ""], ["e", "Zahnpasta", "drogerie", "", 0, 0, ""], ["g", "Duschgel", "drogerie", "", 1, 3, ""]]
   .forEach(([id, n, s, no, d, bc, by], i) => ins.run(id, n, s, no, d, d ? null : "2026-11-14T0" + i + ":00:00Z", d ? "2026-11-13T0" + i + ":00:00Z" : null, "x", bc, by));
 
+// Käufe für die Statistik: diese Woche, letzte Woche, letzter Monat
+{
+  const pi = db.prepare("INSERT INTO purchases (item_id,name,store,cat,shop,person,at) VALUES (?,?,?,?,?,?,?)");
+  const day = n => { const d = new Date(); d.setHours(10, 0, 0, 0); d.setDate(d.getDate() - n); return d.toISOString(); };
+  const wd = (new Date().getDay() + 6) % 7;            // Tage seit Montag
+  [["d", "Bananen", "supermarkt", "", "Jonas", 0], ["d", "Bananen", "supermarkt", "", "Clara", wd], ["c", "Haferflocken", "supermarkt", "Aldi", "Jonas", 0],
+   ["g", "Duschgel", "drogerie", "", "Clara", 0], ["d", "Bananen", "supermarkt", "", "Jonas", wd + 3], ["f", "Kartoffeln", "supermarkt", "", "", 40]]
+    .forEach(([id, n, st, sh, p, ago]) => pi.run(id, n, st, "", sh, p, day(ago)));
+}
 const server = createServer(async (req, res) => {
   const body = ["GET", "HEAD"].includes(req.method) ? undefined : await new Promise(r => { const c = []; req.on("data", d => c.push(d)); req.on("end", () => r(Buffer.concat(c))); });
   const h = new Headers(); for (const [k, v] of Object.entries(req.headers)) h.set(k, v);
@@ -145,6 +154,37 @@ ok(await histMode(page) === "freq", "… und nach dem Neuladen (Drogerie)");
 await page.evaluate(() => localStorage.removeItem("einkaufsliste.v1")); await page.reload(); await page.waitForSelector(".hist"); await page.waitForTimeout(300);
 await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
 ok(await histMode(page) === "group", "… und ohne Listen-Zwischenspeicher");
+
+// Statistik
+await page.click("[data-act=stats]"); await page.waitForSelector(".tiles");
+const tile = async i => (await page.locator(".tile .tv").nth(i).textContent()).trim();
+// erwartete Zahlen direkt aus der Datenbank (der Test hat vorher selbst schon „Skyr“ abgehakt)
+const mon = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.toISOString(); })();
+const wk = db.prepare("SELECT COUNT(*) AS n, COUNT(DISTINCT item_id) AS a FROM purchases WHERE at >= ?").get(mon);
+ok(await tile(0) === String(wk.n) && await tile(1) === String(wk.a), "Woche: " + wk.n + " Käufe, " + wk.a + " Artikel – angezeigt " + await tile(0) + "/" + await tile(1));
+ok((await page.locator(".hbars").first().locator(".hl").first().textContent()).includes("Bananen"), "Top-Artikel: Bananen");
+ok((await page.locator(".card-s .ch b", { hasText: "Wer hat abgehakt" }).count()) === 1, "Bereich „Wer hat abgehakt“");
+ok((await page.locator(".card-s .ch b", { hasText: "Nach Label" }).count()) === 1, "Bereich „Nach Label“");
+await page.locator(".vb").nth((new Date().getDay() + 6) % 7).click();
+ok(/: 3 Sachen|: 4 Sachen|: 1 Sache/.test(await page.textContent("#sttip")), "Balken antippen zeigt Wert: " + await page.textContent("#sttip"));
+await page.screenshot({ path: "/tmp/e2e-stats-week.png", fullPage: true });
+await page.click("[data-st=prev]"); await page.waitForTimeout(100);
+ok(await tile(0) === "1", "Vorwoche: 1 Kauf – " + await tile(0));
+await page.click("[data-st=range][data-k=year]"); await page.waitForTimeout(100);
+const yr = db.prepare("SELECT COUNT(*) AS n FROM purchases WHERE at >= ?").get(new Date(new Date().getFullYear(), 0, 1).toISOString()).n;
+ok(await tile(0) === String(yr), "Jahr: " + yr + " Käufe – angezeigt " + await tile(0));
+await page.screenshot({ path: "/tmp/e2e-stats-year.png", fullPage: true });
+await page.click("[data-st=store][data-k=drogerie]"); await page.waitForTimeout(100);
+ok(await tile(0) === "1", "Jahr, nur Drogerie: 1 Kauf");
+await page.click("[data-st=range][data-k=month]"); await page.waitForTimeout(100);
+await page.click("[data-st=store][data-k='']"); await page.click("[data-st=prev]"); await page.click("[data-st=prev]"); await page.click("[data-st=prev]"); await page.waitForTimeout(100);
+ok(/nichts abgehakt/.test(await page.textContent("#app")), "leerer Monat zeigt Hinweis");
+await page.click("[data-st=back]"); await page.waitForSelector("#q");
+ok((await page.locator("#q").count()) === 1 && (await page.locator(".tiles").count()) === 0, "zurück zur Liste");
+// Abhaken in der Liste landet in der Statistik
+const before2 = db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n;
+await page.click(".row .tick >> nth=0"); await page.waitForTimeout(600);
+ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "Abhaken erzeugt Kauf in der Statistik");
 
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

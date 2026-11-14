@@ -15,6 +15,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 - **Benachrichtigungen**: Trägt Jonas etwas ein, bekommt Clara eine Nachricht (und umgekehrt). Mehrere Einträge kurz hintereinander werden zu einer Nachricht zusammengefasst (12 s Wartezeit). Auf dem iPhone nur, wenn die Liste auf dem Home-Bildschirm liegt (ab iOS 16.4)
 - „Dieses Handy gehört“: Jonas oder Clara; Einträge des anderen zeigen „von …“
 - **Labels für einzelne Geschäfte** (optional, mehrere pro Eintrag): z. B. „Edeka“ und „Aldi“ an „Brezel“. Setzen über „⋯“ oder beim Eintippen mit `@`: `Brezel @Edeka @Aldi`. Die Filter oben („Filter: Alle · Aldi · Edeka …“) zeigen nur Sachen mit einem der gewählten Labels; mehrere Filter gleichzeitig = „oder“. Welche Labels es gibt, steht pro Laden unter Einstellungen → Läden bearbeiten (`settings.stores`); am Eintrag in der Spalte `shop` als `Edeka|Aldi`
+- **Statistik** (Diagramm-Symbol oben rechts): Woche, Monat oder Jahr, mit ‹ › blättern, nach Laden filtern. Kennzahlen (gekauft, verschiedene Artikel, Einkaufstage, Vergleich zum vorigen Zeitraum), Verlauf, häufigste Artikel, Warengruppen, Läden, Labels, wer abgehakt hat. Grundlage ist die Tabelle `purchases`: ein Eintrag pro Abhaken (Rücknahme innerhalb 10 Minuten löscht ihn wieder)
 - Läden umbenennen, sortieren, neu anlegen; Passwort ändern; Abmelden
 - Zweites Handy sieht Änderungen nach spätestens ~4 Sekunden (die Seite fragt alle 4 s, ob sich etwas geändert hat)
 - Funktioniert als Home-Bildschirm-App (Icon + Manifest); zeigt ohne Netz den zuletzt geladenen Stand
@@ -30,7 +31,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 | `src/push.js` | Web Push ohne Fremddienst: VAPID-Signatur und Verschlüsselung (RFC 8291/8292) |
 | `migrations/` | Änderungen für eine bestehende Datenbank |
 | `public/icon*.png`, `public/manifest.webmanifest` | Icon und App-Manifest (öffentlich) |
-| `d1-schema.sql` | Tabellen `items`, `settings`, `login_attempts`, `push_subs` (für eine neue Datenbank) |
+| `d1-schema.sql` | Tabellen `items`, `settings`, `login_attempts`, `push_subs`, `purchases` (für eine neue Datenbank) |
 | `wrangler.jsonc` | Cloudflare-Einstellungen (Datenbank `einkaufsliste-db`) |
 | `test/worker.test.mjs` | Tests gegen eine lokale SQLite-Datenbank (`npm test`) |
 | `test/e2e.mjs` | Klicktest im Browser (lokal, braucht Playwright) |

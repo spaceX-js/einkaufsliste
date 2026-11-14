@@ -271,3 +271,34 @@ test("Labels: Nachricht nennt die Geschäfte", async () => {
   const m = buildMessage("Clara", [{ name: "Brezel", store: "supermarkt", shop: "Edeka|Aldi" }, { name: "Milch", store: "supermarkt", shop: "" }], [{ id: "supermarkt", name: "Supermarkt" }]);
   assert.equal(m.body, "Supermarkt: Brezel (Edeka, Aldi), Milch");
 });
+
+/* ---------- v1.4: Statistik ---------- */
+test("Statistik: jedes Abhaken wird mit Datum gespeichert, schnelle Rücknahme löscht es", async () => {
+  const env = await setup(); const ck = await login(env);
+  const base = { id: "p1", name: "Bananen", store: "supermarkt", shops: ["Aldi"], by: "Clara" };
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });
+  let d = await (await get(env, ck, "/api/purchases")).json();
+  assert.equal(d.rows.length, 1);
+  assert.deepEqual(d.rows[0].slice(0, 6), ["p1", "Bananen", "supermarkt", "", "Aldi", "Clara"]);
+  assert.ok(d.first);
+  // gleich wieder zurück (Versehen) → Kauf weg
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });
+  d = await (await get(env, ck, "/api/purchases")).json();
+  assert.equal(d.rows.length, 0);
+  // zweimal richtig gekauft
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });
+  env.DB.raw.prepare("UPDATE items SET done_at = '2020-01-01T00:00:00.000Z'").run();
+  env.DB.raw.prepare("UPDATE purchases SET at = '2020-01-01T00:00:00.000Z'").run();
+  await post(env, ck, "/api/item", { ...base, done: false, addedAt: new Date().toISOString() });   // später wieder drauf: Kauf bleibt
+  await post(env, ck, "/api/item", { ...base, done: true, doneAt: new Date().toISOString() });
+  d = await (await get(env, ck, "/api/purchases?since=2000-01-01T00:00:00Z")).json();
+  assert.equal(d.rows.length, 2);
+  d = await (await get(env, ck, "/api/purchases?since=2025-01-01T00:00:00Z")).json();
+  assert.equal(d.rows.length, 1, "since filtert");
+  // Bearbeiten ohne Abhaken erzeugt keinen Kauf
+  await post(env, ck, "/api/item", { ...base, done: true, note: "groß", doneAt: new Date().toISOString() });
+  d = await (await get(env, ck, "/api/purchases?since=2000-01-01T00:00:00Z")).json();
+  assert.equal(d.rows.length, 2);
+  assert.equal((await call(env, "/api/purchases")).status, 401, "nur angemeldet");
+});
