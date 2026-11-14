@@ -59,7 +59,7 @@ async function api(request, env, settings, url, ctx) {
       stores: parseStores(settings.stores),
       people: people(settings),
       items: results.map(r => ({ id: r.id, name: r.name, store: r.store, note: r.note || "", done: !!r.done, addedAt: r.added_at || null, doneAt: r.done_at || null,
-        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shop: r.shop || "" }))
+        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shops: splitShops(r.shop) }))
     });
   }
 
@@ -152,10 +152,16 @@ export function checkItem(b) {
   const cat = typeof b.cat === "string" && CAT_RE.test(b.cat) ? b.cat : "";
   const buyCount = Math.max(0, Math.min(100000, Math.floor(Number(b.buyCount) || 0)));
   return { id: b.id, name, store: b.store, note: String(b.note || "").trim().slice(0, 300), done: !!b.done, addedAt: isoOrNull(b.addedAt), doneAt: isoOrNull(b.doneAt),
-    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: cleanLabel(b.shop) };
+    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: joinShops(Array.isArray(b.shops) ? b.shops : [b.shop]) };
 }
-// Label wie „Edeka“ oder „dm“: optional, kurz, ohne Steuerzeichen
-function cleanLabel(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 30); }
+// Label wie „Edeka“ oder „dm“: optional, kurz, ohne Steuerzeichen. Mehrere Labels stehen in der Spalte shop als „Aldi|Edeka“.
+function cleanLabel(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f<>|,]/g, "").replace(/\s+/g, " ").trim().slice(0, 30); }
+export function joinShops(list) {
+  const out = [], seen = new Set();
+  for (const l of (list || []).slice(0, 10)) { const c = cleanLabel(l); if (c && !seen.has(c.toLowerCase())) { seen.add(c.toLowerCase()); out.push(c); } }
+  return out.join("|");
+}
+export function splitShops(v) { return String(v || "").split("|").map(x => x.trim()).filter(Boolean); }
 export function checkSub(b) {
   if (!b || typeof b.endpoint !== "string" || !b.keys) return null;
   let u; try { u = new URL(b.endpoint); } catch (e) { return null; }
@@ -220,7 +226,7 @@ export async function notifyAdded(env, person, addedAt, origin) {
 }
 export function buildMessage(person, items, stores) {
   const byStore = new Map();
-  for (const it of items) { if (!byStore.has(it.store)) byStore.set(it.store, []); byStore.get(it.store).push(it.shop ? it.name + " (" + it.shop + ")" : it.name); }
+  for (const it of items) { if (!byStore.has(it.store)) byStore.set(it.store, []); byStore.get(it.store).push(it.shop ? it.name + " (" + splitShops(it.shop).join(", ") + ")" : it.name); }
   const storeName = id => (stores.find(s => s.id === id) || { name: id }).name;
   const parts = [...byStore].map(([st, names]) => storeName(st) + ": " + (names.length > 6 ? names.slice(0, 6).join(", ") + " und " + (names.length - 6) + " weitere" : names.join(", ")));
   const title = items.length === 1 ? person + " hat „" + items[0].name + "“ eingetragen" : person + " hat " + items.length + " Sachen eingetragen";

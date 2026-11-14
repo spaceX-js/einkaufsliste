@@ -66,13 +66,17 @@ async function send(path, body){
   finally{ S.pending--; if(!S.pending){ S.dirty=false; refresh(true); } }
 }
 function itemBody(it){ return {id:it.id,name:it.name,store:it.store,note:it.note||"",done:!!it.done,addedAt:it.addedAt||null,doneAt:it.doneAt||null,
-  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shop:it.shop||""}; }
+  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shops:shopsOf(it)}; }
+// Labels eines Eintrags (ältere Zwischenspeicher kennen nur ein einzelnes „shop“)
+const shopsOf = i => Array.isArray(i.shops) ? i.shops : (i.shop ? [i.shop] : []);
+const tags = i => shopsOf(i).map(l=>'<span class="shop">'+esc(l)+'</span>').join("");
 const labelsOf = id => ((stores().find(s=>s.id===id)||{}).labels)||[];
-// „Brezel @Edeka“ → Name „Brezel“ mit Label „Edeka“ (nur wenn es das Label bei diesem Laden gibt)
+// „Brezel @Edeka @Aldi“ → Name „Brezel“ mit Labels Edeka und Aldi (nur Labels, die es bei diesem Laden gibt)
 function splitShop(text, store){
-  const m=String(text).match(/^(.*?)\s*@\s*([^@]+)$/); if(!m) return {name:text, shop:""};
-  const lab=labelsOf(store).find(l=>l.toLowerCase()===m[2].trim().toLowerCase());
-  return lab && m[1].trim() ? {name:m[1].trim(), shop:lab} : {name:text, shop:""};
+  const m=String(text).match(/^(.*?)((?:\s*@\s*[^@]+)+)$/); if(!m || !m[1].trim()) return {name:text, shops:[]};
+  const labs=labelsOf(store), shops=[];
+  for(const w of m[2].split("@").map(x=>x.trim()).filter(Boolean)){ const l=labs.find(x=>x.toLowerCase()===w.toLowerCase()); if(!l) return {name:text, shops:[]}; if(!shops.includes(l)) shops.push(l); }
+  return {name:m[1].trim(), shops};
 }
 function patchLocal(id, data){ const it=S.items.find(i=>i.id===id); if(it) Object.assign(it,data); else S.items.push(Object.assign({id},data)); saveLocal(); return S.items.find(i=>i.id===id); }
 function pushItem(it){ send("/api/item", itemBody(it)); }
@@ -84,12 +88,13 @@ function addItem(name, store){
   const sp=splitShop(name, store); name=sp.name;
   const ex = S.items.find(i=>i.store===store && norm(i.name)===norm(name));
   if(ex){
-    if(!ex.done){ if(sp.shop && ex.shop!==sp.shop){ pushItem(patchLocal(ex.id,{shop:sp.shop})); render(); toast("„"+ex.name+"“ jetzt bei "+sp.shop); } else toast("„"+ex.name+"“ steht schon drauf"); return; }
-    const data={done:false, addedAt:now(), addedBy:S.me||""}; if(sp.shop) data.shop=sp.shop;
+    const merged=[...new Set(shopsOf(ex).concat(sp.shops))];
+    if(!ex.done){ if(merged.length>shopsOf(ex).length){ pushItem(patchLocal(ex.id,{shops:merged})); render(); toast("„"+ex.name+"“: "+merged.join(", ")); } else toast("„"+ex.name+"“ steht schon drauf"); return; }
+    const data={done:false, addedAt:now(), addedBy:S.me||""}; if(sp.shops.length) data.shops=merged;
     pushItem(patchLocal(ex.id,data)); render();
   } else {
     const id=uid();
-    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shop:sp.shop})); render();
+    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops})); render();
   }
 }
 function toggle(id){
@@ -158,27 +163,28 @@ function render(){
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
   const all=openOf(S.cur), hist=histOf(S.cur), labels=labelsOf(S.cur);
-  let f=S.filter[S.cur]||""; if(f && !labels.includes(f)) f=S.filter[S.cur]="";
-  // Filter „nur bei Edeka“: Sachen mit diesem Label + Sachen ohne Label (die gibt es überall)
-  const open = f ? all.filter(i=>!i.shop || i.shop===f) : all;
+  // Filter: ausgewählte Labels → nur Sachen, die mindestens eins davon haben
+  const f=(S.filter[S.cur]||[]).filter(l=>labels.includes(l)); S.filter[S.cur]=f;
+  const open = f.length ? all.filter(i=>shopsOf(i).some(l=>f.includes(l))) : all;
   let h='';
   if(!S.me) h+='<div class="whobox"><b>Wer benutzt dieses Handy?</b><div class="small">Damit der andere erfährt, wer etwas eingetragen hat.</div><div class="chips">'+
     S.people.map(p=>'<button data-me="'+esc(p)+'">'+esc(p)+'</button>').join("")+'</div></div>';
   h+='<div class="sec"><b>Einkaufen'+(open.length?' · '+open.length:'')+'</b>'+seg("open",S.sortOpen,[["group","Warengruppe"],["new","Neueste"]])+'</div>';
   if(labels.length){
-    const cnt=l=>all.filter(i=>i.shop===l).length;
-    h+='<div class="shopbar"><span class="small">Ich bin bei:</span><button class="'+(f?'':'on')+'" data-filter="">Egal</button>'+
-      labels.map(l=>'<button class="'+(f===l?'on':'')+'" data-filter="'+esc(l)+'">'+esc(l)+(cnt(l)?' <small>'+cnt(l)+'</small>':'')+'</button>').join("")+'</div>';
-    if(f && all.length>open.length) h+='<div class="small" style="margin:0 4px 8px">'+(all.length-open.length)+' Sache'+(all.length-open.length>1?'n':'')+' für andere Geschäfte ausgeblendet</div>';
+    const cnt=l=>all.filter(i=>shopsOf(i).includes(l)).length;
+    h+='<div class="shopbar"><span class="small">Filter:</span><button class="'+(f.length?'':'on')+'" data-filter="">Alle</button>'+
+      labels.map(l=>'<button class="'+(f.includes(l)?'on':'')+'" data-filter="'+esc(l)+'">'+esc(l)+(cnt(l)?' <small>'+cnt(l)+'</small>':'')+'</button>').join("")+'</div>';
+    if(f.length && all.length>open.length) h+='<div class="small" style="margin:0 4px 8px">Nur Sachen mit Label '+f.map(esc).join(" oder ")+' · '+(all.length-open.length)+' weitere ausgeblendet</div>';
   }
   if(open.length){
     if(S.sortOpen==="group") h+=chunks(open).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
     else h+='<div class="list">'+open.map(rowHtml).join("")+'</div>';
   }
+  else if(f.length) h+='<div class="list"><div class="empty">Nichts mit Label '+f.map(esc).join(" oder ")+'.<br><span class="small">Labels vergibst du über „⋯“ am Eintrag oder beim Eintippen mit @, z. B. „Brezel @'+esc(f[0])+'“.</span></div></div>';
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
     const lim=S.showAllHist?hist.length:(S.sortHist==="group"?hist.length:24);
-    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+(i.shop?'<span class="shop">'+esc(i.shop)+'</span>':'')+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
+    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
     h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",S.sortHist,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
     h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste</div>';
     if(S.sortHist==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
@@ -191,7 +197,7 @@ function render(){
 }
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+(i.shop?'<span class="shop">'+esc(i.shop)+'</span>':'')+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button></div>';
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button></div>';
 }
 
 /* ---------- Dialoge ---------- */
@@ -204,9 +210,9 @@ function sheet(inner){
 }
 function openEdit(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  let st=it.store, shop=it.shop||""; const auto=G.guessGroup(it.name);
-  const shopChips=()=>{ const ls=labelsOf(st); if(shop && !ls.includes(shop)) shop="";
-    return ls.length ? '<button type="button" data-sh="" class="'+(shop?'':'on')+'">Egal wo</button>'+ls.map(l=>'<button type="button" data-sh="'+esc(l)+'" class="'+(shop===l?'on':'')+'">'+esc(l)+'</button>').join("")
+  let st=it.store, shops=shopsOf(it).slice(); const auto=G.guessGroup(it.name);
+  const shopChips=()=>{ const ls=labelsOf(st); shops=shops.filter(l=>ls.includes(l));
+    return ls.length ? '<button type="button" data-sh="" class="'+(shops.length?'':'on')+'">Keins</button>'+ls.map(l=>'<button type="button" data-sh="'+esc(l)+'" class="'+(shops.includes(l)?'on':'')+'">'+esc(l)+'</button>').join("")
       : '<span class="small">Für '+esc(storeName(st))+' gibt es keine Labels. Anlegen unter Einstellungen → Läden bearbeiten.</span>'; };
   const m=sheet('<h3>Eintrag bearbeiten</h3>'+
     '<label class="f"><span>Was?</span><input id="e_name" maxlength="120" value="'+esc(it.name)+'"></label>'+
@@ -214,9 +220,11 @@ function openEdit(id){
     '<label class="f"><span>Warengruppe</span><select id="e_cat"><option value="">Automatisch ('+esc(G.groupName(auto))+')</option>'+
       G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
-    '<label class="f"><span>Nur kaufen bei (optional)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
+    '<label class="f"><span>Labels (optional, mehrere möglich)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
     '<div class="acts"><button class="btn danger" id="e_del">Löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>');
-  const bindSh=()=>m.querySelectorAll("#e_sh [data-sh]").forEach(b=>b.onclick=()=>{ shop=b.dataset.sh; m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on",x===b)); });
+  const bindSh=()=>m.querySelectorAll("#e_sh [data-sh]").forEach(b=>b.onclick=()=>{
+    const l=b.dataset.sh; shops = !l ? [] : shops.includes(l) ? shops.filter(x=>x!==l) : shops.concat([l]);
+    m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
   bindSh();
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
   $("e_x").onclick=closeModal;
@@ -225,7 +233,7 @@ function openEdit(id){
     const name=$("e_name").value.trim(), note=$("e_note").value.trim();
     if(!name){ toast("Bitte einen Namen eingeben"); return; }
     const cat=$("e_cat").value;
-    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shop!==(it.shop||"")) data.shop=shop;
+    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shops.join("|")!==shopsOf(it).join("|")) data.shops=shops;
     if(Object.keys(data).length){ pushItem(patchLocal(id,data)); if(data.store) toast("Verschoben nach "+storeName(st)); }
     closeModal();
   };
@@ -340,7 +348,8 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
   const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter]"); if(!t) return;
-  if(t.dataset.filter!=null){ S.filter[S.cur]=t.dataset.filter; render(); return; }
+  if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
+    S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }
   if(t.dataset.sort){ if(t.dataset.sort==="open") S.sortOpen=t.dataset.k; else S.sortHist=t.dataset.k; saveLocal(); render(); return; }
   if(t.dataset.me){ setMe(t.dataset.me); render(); toast("Danke, "+t.dataset.me+"! Benachrichtigungen kannst du oben rechts einschalten."); return; }
   if(t.dataset.store){ S.cur=t.dataset.store; S.showAllHist=false; saveLocal(); render(); window.scrollTo(0,0); return; }

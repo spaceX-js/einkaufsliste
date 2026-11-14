@@ -91,26 +91,29 @@ await page2.fill("#q", "Eier"); await page2.press("#q", "Enter");
 await page.waitForTimeout(5500);
 ok((await page.locator(".row .n", { hasText: "Eier" }).count()) === 1, "erstes Gerät bekommt „Eier“ automatisch");
 
-// Labels: „Brezel @Edeka“ trägt mit Label ein, Filter blendet passend aus
-await page.fill("#q", "Brezel @edeka"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
-ok(db.prepare("SELECT shop FROM items WHERE name='Brezel'").get()?.shop === "Edeka", "„Brezel @edeka“ → Label Edeka");
-ok((await page.locator(".row .n .shop", { hasText: "Edeka" }).count()) === 1, "Label am Eintrag sichtbar");
-const openCount = async () => page.locator(".row").count();
-const before = await openCount();
+// Labels: „Brezel @Edeka @Aldi“ → zwei Labels; Filter zeigt nur Einträge mit passendem Label
+await page.fill("#q", "Brezel @edeka @Aldi"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
+await page.fill("#q", "Senf @Edeka"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
+ok(db.prepare("SELECT shop FROM items WHERE name='Brezel'").get()?.shop === "Edeka|Aldi", "„Brezel @edeka @Aldi“ → zwei Labels");
+ok((await page.locator(".row", { hasText: "Brezel" }).locator(".shop").count()) === 2, "beide Labels am Eintrag sichtbar");
+const names = async () => (await page.locator(".row .n").allTextContents()).map(t => t.replace(/(Edeka|Aldi)/g, "")).sort().join(",");
 await page.click("[data-filter=Aldi]"); await page.waitForTimeout(150);
-ok((await openCount()) === before - 1 && (await page.locator(".row .n", { hasText: "Brezel" }).count()) === 0, "Filter Aldi blendet Edeka-Brezel aus");
-ok(/1 Sache für andere Geschäfte ausgeblendet/.test(await page.textContent("#app")), "Hinweis auf Ausgeblendetes");
+ok(await names() === "Brezel", "Filter Aldi: nur Brezel – " + await names());
 await page.click("[data-filter=Edeka]"); await page.waitForTimeout(150);
-ok((await openCount()) === before, "Filter Edeka zeigt Brezel + alles ohne Label");
-await page.click("[data-filter='']");
+ok(await names() === "Brezel,Senf", "Filter Aldi + Edeka: Brezel und Senf – " + await names());
+ok(/Nur Sachen mit Label Aldi oder Edeka/.test(await page.textContent("#app")), "Hinweis zum Filter");
 await page.screenshot({ path: "/tmp/e2e-labels.png" });
+await page.click("[data-filter=Aldi]"); await page.click("[data-filter=Edeka]"); await page.waitForTimeout(150);
+ok((await page.locator(".row").count()) >= 5, "beide Filter wieder aus → alles sichtbar");
+await page.click("[data-filter=Aldi]"); await page.click("[data-filter='']"); await page.waitForTimeout(150);
+ok((await page.locator(".shopbar button.on").textContent()) === "Alle", "„Alle“ setzt Filter zurück");
 
 // Bearbeiten
 await page.locator(".row", { hasText: "Butter" }).locator(".more").click();
-await page.click("#e_sh [data-sh=Aldi]");
+await page.click("#e_sh [data-sh=Aldi]"); await page.click("#e_sh [data-sh=Edeka]");
 await page.fill("#e_note", "Kerrygold"); await page.selectOption("#e_cat", "sonst"); await page.click("#e_ok"); await page.waitForTimeout(400);
 ok(db.prepare("SELECT cat FROM items WHERE name='Butter'").get().cat === "sonst", "Warengruppe von Hand geändert");
-ok(db.prepare("SELECT shop FROM items WHERE name='Butter'").get().shop === "Aldi", "Label im Dialog gesetzt");
+ok(db.prepare("SELECT shop FROM items WHERE name='Butter'").get().shop === "Aldi|Edeka", "zwei Labels im Dialog gesetzt");
 ok((await page.locator(".grp").allTextContents()).includes("Sonstiges"), "Abschnitt „Sonstiges“ erscheint");
 ok((await page.locator(".row .d", { hasText: "Kerrygold" }).count()) === 1, "Notiz gespeichert");
 await page.screenshot({ path: "/tmp/e2e-2.png" });

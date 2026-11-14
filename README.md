@@ -14,7 +14,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 - **Häufigkeit**: jedes Abhaken zählt +1; wird innerhalb von 10 Minuten zurückgenommen, wieder −1
 - **Benachrichtigungen**: Trägt Jonas etwas ein, bekommt Clara eine Nachricht (und umgekehrt). Mehrere Einträge kurz hintereinander werden zu einer Nachricht zusammengefasst (12 s Wartezeit). Auf dem iPhone nur, wenn die Liste auf dem Home-Bildschirm liegt (ab iOS 16.4)
 - „Dieses Handy gehört“: Jonas oder Clara; Einträge des anderen zeigen „von …“
-- **Labels für einzelne Geschäfte** (optional): z. B. „Edeka“ an „Brezel“, wenn es die nur dort geben soll. Setzen über „⋯“ oder beim Eintippen mit `@`: `Brezel @Edeka`. Mit „Ich bin bei: Aldi“ zeigt die Liste nur Sachen für Aldi und alles ohne Label. Welche Labels es gibt, steht pro Laden unter Einstellungen → Läden bearbeiten (gespeichert in `settings.stores`)
+- **Labels für einzelne Geschäfte** (optional, mehrere pro Eintrag): z. B. „Edeka“ und „Aldi“ an „Brezel“. Setzen über „⋯“ oder beim Eintippen mit `@`: `Brezel @Edeka @Aldi`. Die Filter oben („Filter: Alle · Aldi · Edeka …“) zeigen nur Sachen mit einem der gewählten Labels; mehrere Filter gleichzeitig = „oder“. Welche Labels es gibt, steht pro Laden unter Einstellungen → Läden bearbeiten (`settings.stores`); am Eintrag in der Spalte `shop` als `Edeka|Aldi`
 - Läden umbenennen, sortieren, neu anlegen; Passwort ändern; Abmelden
 - Zweites Handy sieht Änderungen nach spätestens ~4 Sekunden (die Seite fragt alle 4 s, ob sich etwas geändert hat)
 - Funktioniert als Home-Bildschirm-App (Icon + Manifest); zeigt ohne Netz den zuletzt geladenen Stand

@@ -241,31 +241,33 @@ test("Warengruppen-Erkennung", async () => {
   assert.equal(G.groupOf({ name: "Sumach", cat: "obst" }), "obst");      // von Hand gewählt hat Vorrang
 });
 
-/* ---------- v1.2: Labels für einzelne Geschäfte ---------- */
-test("Labels: am Eintrag optional, je Laden einstellbar, in der Nachricht sichtbar", async () => {
+/* ---------- v1.2/1.3: Labels für einzelne Geschäfte (mehrere pro Eintrag) ---------- */
+test("Labels: mehrere pro Eintrag, je Laden einstellbar", async () => {
   const env = await setup(); const ck = await login(env);
   await post(env, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Aldi", " Edeka ", "aldi", ""] }, { id: "drogerie", name: "Drogerie" }] });
   let st = await (await get(env, ck, "/api/state")).json();
   assert.deepEqual(st.stores[0].labels, ["Aldi", "Edeka"], "doppelte/leere Labels entfernt");
   assert.equal(st.stores[1].labels, undefined, "Laden ohne Labels bleibt ohne");
 
-  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shop: "Edeka", addedAt: new Date().toISOString() });
+  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shops: ["Edeka", "Aldi", "edeka"], addedAt: new Date().toISOString() });
   await post(env, ck, "/api/item", { id: "l2", name: "Milch", store: "supermarkt", addedAt: new Date().toISOString() });
-  await post(env, ck, "/api/item", { id: "l3", name: "X", store: "supermarkt", shop: "<b>Lidl</b>\n" });
+  await post(env, ck, "/api/item", { id: "l3", name: "X", store: "supermarkt", shops: ["<b>Li|dl</b>\n"] });
+  await post(env, ck, "/api/item", { id: "l4", name: "Alt", store: "supermarkt", shop: "Rewe" });          // ältere Seite schickt nur „shop“
   st = await (await get(env, ck, "/api/state")).json();
   const by = id => st.items.find(i => i.id === id);
-  assert.equal(by("l1").shop, "Edeka");
-  assert.equal(by("l2").shop, "", "ohne Label bleibt leer");
-  assert.equal(by("l3").shop, "bLidl/b", "Sonderzeichen entfernt");
+  assert.deepEqual(by("l1").shops, ["Edeka", "Aldi"], "mehrere Labels, Dubletten raus");
+  assert.deepEqual(by("l2").shops, [], "ohne Label bleibt leer");
+  assert.deepEqual(by("l3").shops, ["bLidl/b"], "Sonderzeichen entfernt");
+  assert.deepEqual(by("l4").shops, ["Rewe"], "einzelnes Label (alte Form) wird verstanden");
+  assert.equal(env.DB.raw.prepare("SELECT shop FROM items WHERE id='l1'").get().shop, "Edeka|Aldi");
 
-  // Label wieder entfernen
-  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shop: "" });
+  await post(env, ck, "/api/item", { id: "l1", name: "Brezel", store: "supermarkt", shops: [] });
   st = await (await get(env, ck, "/api/state")).json();
-  assert.equal(st.items.find(i => i.id === "l1").shop, "");
+  assert.deepEqual(st.items.find(i => i.id === "l1").shops, []);
 });
 
-test("Labels: Nachricht nennt das Geschäft", async () => {
+test("Labels: Nachricht nennt die Geschäfte", async () => {
   const { buildMessage } = await import("../src/index.js");
-  const m = buildMessage("Clara", [{ name: "Brezel", store: "supermarkt", shop: "Edeka" }, { name: "Milch", store: "supermarkt", shop: "" }], [{ id: "supermarkt", name: "Supermarkt" }]);
-  assert.equal(m.body, "Supermarkt: Brezel (Edeka), Milch");
+  const m = buildMessage("Clara", [{ name: "Brezel", store: "supermarkt", shop: "Edeka|Aldi" }, { name: "Milch", store: "supermarkt", shop: "" }], [{ id: "supermarkt", name: "Supermarkt" }]);
+  assert.equal(m.body, "Supermarkt: Brezel (Edeka, Aldi), Milch");
 });
