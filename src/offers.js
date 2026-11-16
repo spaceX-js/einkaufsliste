@@ -94,7 +94,8 @@ export function normalizeOffer(o, shops) {
   const from = dates.length ? dates.map(d => String(d.from || "").slice(0, 10)).sort()[0] : "";
   const to = dates.length ? dates.map(d => String(d.to).slice(0, 10)).sort().pop() : "";
   const text = [brand, o.product && o.product.name, o.description].filter(Boolean).join(" ");
-  return { id: String(o.id || ""), shop, adv: adv.join("/"), title: String(title).slice(0, 140), brand: String(brand).slice(0, 60), price: cents(o.price), oldPrice: cents(o.oldPrice),
+  const tidy = v => String(v || "").replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
+  return { id: String(o.id || ""), shop, adv: adv.join("/"), title: tidy(title).slice(0, 140), brand: tidy(brand).slice(0, 60), price: cents(o.price), oldPrice: cents(o.oldPrice),
     refPrice: cents(o.referencePrice), refUnit, amount: amount.slice(0, 40), bio: isBio(text) ? 1 : 0, from, to, text };
 }
 
