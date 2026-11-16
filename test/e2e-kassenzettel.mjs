@@ -167,14 +167,14 @@ try {
   await page.waitForTimeout(4500);   // Liste aktualisiert sich
   await page.evaluate(() => window.Prices.load(true)); await page.waitForTimeout(500);
   const rowTm = page.locator(".row", { hasText: "Tomatenmark" });
-  ok(/Angebot: Lidl 0,79 € · Bio/.test(await rowTm.textContent()), "Hinweis in der Liste (Bio bevorzugt): " + (await rowTm.locator(".d").textContent()));
+  ok(/Angebot: Lidl 1,29 €/.test(await rowTm.textContent()), "Hinweis in der Liste (bester Grundpreis): " + (await rowTm.locator(".d").textContent()));
   await page.screenshot({ path: "/tmp/pr-1.png" });
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
   ok((await page.locator(".ofcard").count()) === 2, "2 Sachen mit Angeboten");
   const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
   const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
-  ok(/Bio Tomatenmark/.test(tmTitles[0]) && /Großpackung/.test(tmTitles[1]) && /Baresa/.test(tmTitles[2]), "Reihenfolge: Bio, dann nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));
+  ok(/Großpackung/.test(tmTitles[0]) && /Baresa/.test(tmTitles[1]) && /Bio Tomatenmark/.test(tmTitles[2]), "Reihenfolge nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));
   ok(/2,58 €\/kg/.test(await page.locator(".ofcard", { hasText: "Tomatenmark" }).textContent()), "Grundpreis wird angezeigt");
   ok(/ab Do|ab Mo|ab Di|ab Mi|ab Fr|ab Sa|ab So/.test(await page.locator(".ofcard", { hasText: "Tomatenmark" }).textContent()), "kommendes Angebot mit „ab …“");
   ok(/Ohne Angebot:.*Birnen/.test(await page.locator("#app").textContent()), "Birnen ohne Angebot");
@@ -182,8 +182,8 @@ try {
   await page.click("[data-pr=tab][data-k=compare]");
   await page.waitForSelector(".cmprow");
   const cmp = await page.locator(".cmprow").allTextContents();
-  // Lidl: Petersilie 0,89 (Angebot) + Tomatenmark 0,79 (Bio) + Birnen geschätzt 0,55 → ~2,23; Penny: Birnen 0,55 (Bon, kg) + Petersilie 1,39 (Bon) + TM geschätzt 0,79 → ~2,73
-  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~2,23 €/.test(cmp[0]) && /~2,73 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
+  // Lidl: Petersilie 0,89 (Angebot) + Tomatenmark 1,29 (bester Grundpreis) + Birnen geschätzt 0,55 → ~2,73; Penny: Birnen 0,55 + Petersilie 1,39 (Bons) + TM geschätzt 1,29 → ~3,23
+  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~2,73 €/.test(cmp[0]) && /~3,23 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
   await page.click(".cmprow >> nth=0");
   ok((await page.locator(".cmpi").count()) === 3 && (await page.locator(".cmpi.est").count()) === 1, "Details mit geschätztem Preis");
   ok(/Günstigster Mix/.test(await page.locator("#app").textContent()), "günstigster Mix");

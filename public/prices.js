@@ -22,8 +22,8 @@ function byUnit(a,b){
   if(a.refPrice && !b.refPrice) return -1; if(b.refPrice && !a.refPrice) return 1;
   return a.price-b.price;
 }
-// Bio bevorzugt; innerhalb davon das verhältnismäßig günstigste (Grundpreis)
-function pick(list){ if(!list.length) return null; const bio=list.filter(o=>o.bio); return (bio.length?bio:list).slice().sort(byUnit)[0]; }
+// das verhältnismäßig günstigste Angebot (Grundpreis); Bio ist nur ein Kennzeichen
+function pick(list){ return list.length ? list.slice().sort(byUnit)[0] : null; }
 function bestNow(id, shop){ return pick(offersOf(id).filter(o=>isNow(o) && (!shop || o.shop===shop))); }
 function offerTitle(o){ const t=o.title||""; return (o.brand && !t.toLowerCase().includes(o.brand.toLowerCase()) ? o.brand+" " : "")+t; }
 function validText(o){ return o.from>today() ? "ab "+dayText(o.from) : "bis "+dayText(o.to); }
@@ -71,7 +71,7 @@ function offerRow(o){
     '<div class="ofp">'+eur(o.price)+(refText(o)?'<em>'+esc(refText(o))+'</em>':'')+(o.oldPrice && o.oldPrice>o.price?'<s>'+eur(o.oldPrice)+'</s>':'')+'</div></div>';
 }
 function itemOffersCard(it, list, extra){
-  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || (b.bio-a.bio) || byUnit(a,b));
+  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || byUnit(a,b));
   const best=pick(sorted.filter(isNow));
   return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+' ⋯</span></button>'+
     sorted.slice(0,6).map(offerRow).join("")+(sorted.length>6?'<div class="small" style="padding:6px 14px 10px">und '+(sorted.length-6)+' weitere</div>':'')+'</div>';
@@ -99,7 +99,7 @@ function offersHtml(){
   }
   const none=checkable.filter(i=>W[i.id] && W[i.id].checkedAt && !offersOf(i.id).length);
   if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+'</button>').join(", ")+'</div>';
-  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Sortiert wird nach Grundpreis (je kg, Liter oder Stück) – Bio steht trotzdem vorne.</div>';
+  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Sortiert wird nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
   return h;
 }
 
@@ -207,7 +207,7 @@ async function editSection(id, el){
   if(!document.body.contains(el)) return;
   const it=itemById(id); if(!it) return;
   const W=(P.data&&P.data.watch||{})[id]||{};
-  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || (b.bio-a.bio) || byUnit(a,b));
+  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || byUnit(a,b));
   const per=new Map(); for(const p of hist.prices) if(!per.has(p.shop)) per.set(p.shop,p);
   const val=p=>p.unit==="kg" ? p.unitPrice : Math.round(p.price/Math.max(1,p.qty));
   const paid=[...per.values()].sort((a,b)=>val(a)-val(b));
