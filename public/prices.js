@@ -25,18 +25,22 @@ function byUnit(a,b){
 // das verhältnismäßig günstigste Angebot (Grundpreis); Bio ist nur ein Kennzeichen
 function pick(list){ return list.length ? list.slice().sort(byUnit)[0] : null; }
 function bestNow(id, shop){ return pick(offersOf(id).filter(o=>isNow(o) && (!shop || o.shop===shop))); }
-// Angebot für genau die Sorte, die ihr laut Kassenzettel schon gekauft habt?
-// Verglichen werden nur die Wörter des Bon-Texts, die über den Artikelnamen hinausgehen (Marke, Sorte),
-// z. B. „HAFERDR. BARISTA“ beim Artikel „Haferdrink“ → „barista“ muss im Angebot vorkommen.
+// Angebot für genau das, was ihr laut Kassenzettel schon gekauft habt?
+// Wörter auf dem Bon, die nur den Artikel beschreiben (Name, Suchbegriff), sagen nichts über die Sorte.
+// - Gleiches Geschäft: passt, wenn der Bon nichts darüber hinaus sagt (z. B. „K.champignons“) oder Sorte/Marke im Angebot steht.
+// - Anderes Geschäft: nur, wenn die Marke des Angebots auf dem Bon steht (Eigenmarken unterscheiden sich je Geschäft).
 function knownVariant(o){
   const raws=(P.data && P.data.bought && P.data.bought[o.itemId])||[]; if(!raws.length || !window.Receipts) return false;
   const T=window.Receipts._test, it=itemById(o.itemId); if(!it) return false;
-  const nameT=T.toks(it.name), offT=T.toks([o.brand,o.title].join(" "));
-  return raws.some(raw=>{
-    const extra=T.toks(raw).filter(r=>!nameT.some(n=>T.tokMatch(r,n)));
-    if(!extra.length) return false;
-    const hit=extra.filter(r=>offT.some(t=>T.tokMatch(r,t))).length;
-    return hit/extra.length>=0.66;
+  const w=(P.data.watch||{})[o.itemId]||{};
+  const plain=T.toks(it.name+" "+(w.query||"")), offT=T.toks([o.brand,o.title].join(" "));
+  const same=(a,b)=>String(a).toLowerCase()===String(b).toLowerCase();
+  return raws.some(b=>{
+    const sortW=T.toks(b.raw).filter(r=>!plain.some(n=>T.tokMatch(r,n)));
+    if(same(b.shop, o.shop)) return !sortW.length || sortW.filter(r=>offT.some(t=>T.tokMatch(r,t))).length/sortW.length>=0.66;
+    // anderes Geschäft: nur wenn die Marke auf dem Bon steht (z. B. „OATLY HAFERDR.“)
+    const brandT=T.toks(o.brand||"");
+    return brandT.length>0 && sortW.some(r=>brandT.some(t=>T.tokMatch(r,t)));
   });
 }
 function offerTitle(o){ const t=o.title||""; return (o.brand && !t.toLowerCase().includes(o.brand.toLowerCase()) ? o.brand+" " : "")+t; }

@@ -162,6 +162,8 @@ try {
   io.run("tm", "o4", "Penny", "Tomatenmark", "", 69, null, null, "", "", 0, d(2), d(8), "x");
   io.run("hafer", "o7", "Aldi", "Bio-Haferdrink", "My Vay", 90, null, 90, "l", "1 l", 1, d(-1), d(4), "x");
   io.run("hafer", "o8", "Rewe", "Vegan Haferdrink Barista Edition", "Oatly", 179, null, 179, "l", "1 l", 0, d(-1), d(4), "x");
+  io.run("hafer", "o9", "Penny", "Haferdrink Barista", "", 119, null, 119, "l", "1 l", 0, d(-1), d(4), "x");
+  io.run("pet", "o10", "Lidl", "Petersilie glatt Topf", "", 99, null, null, "", "", 0, d(-1), d(4), "x");
   io.run("skyr", "o6", "Penny", "Skyr", "", 99, 149, 198, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("tm", "o5", "Lidl", "Tomatenmark Großpackung", "", 129, null, 258, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
@@ -176,7 +178,9 @@ try {
   await page.waitForSelector(".ofcard");
   ok((await page.locator(".ofcard").count()) === 3, "3 Kärtchen (nur Sachen auf der Liste)");
   const haf = await page.locator(".ofcard", { hasText: "Haferdrink" }).locator(".ofr").allTextContents();
-  ok(haf.length === 2 && /Barista.*schon gekauft/.test(haf[0]) && /My Vay/.test(haf[1]) && !/schon gekauft/.test(haf[1]), "schon gekaufte Sorte zuerst: " + haf.join(" | "));
+  ok(haf.length === 3 && /^Penny Haferdrink Barista schon gekauft/.test(haf[0]) && haf.filter(t => /schon gekauft/.test(t)).length === 1, "schon gekaufte Sorte (gleiches Geschäft) zuerst, Oatly bei Rewe nicht: " + haf.join(" | "));
+  const pe = await page.locator(".ofcard", { hasText: "Petersilie" }).locator(".ofr").allTextContents();
+  ok(pe.length === 2 && pe.every(t => !/schon gekauft/.test(t)), "Petersilie bei Penny gekauft, Angebote nur bei Lidl → kein „schon gekauft“");
   ok((await page.locator(".sec", { hasText: "Schon mal gekauft" }).count()) === 0, "kein Abschnitt für schon Gekauftes");
   const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
   const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
@@ -189,7 +193,7 @@ try {
   await page.waitForSelector(".cmprow");
   const cmp = await page.locator(".cmprow").allTextContents();
   // Lidl: Petersilie 0,89 (Angebot) + Tomatenmark 1,29 (bester Grundpreis) + Birnen geschätzt 0,55 → ~2,73; Penny: Birnen 0,55 + Petersilie 1,39 (Bons) + TM geschätzt 1,29 → ~3,23
-  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~4,52 €/.test(cmp[0]) && /~5,02 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
+  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~3,92 €/.test(cmp[0]) && /~4,42 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
   await page.click(".cmprow >> nth=0");
   ok((await page.locator(".cmpi").count()) === 4 && (await page.locator(".cmpi.est").count()) === 2, "Details mit geschätzten Preisen");
   ok(/Günstigster Mix/.test(await page.locator("#app").textContent()), "günstigster Mix");
@@ -197,14 +201,14 @@ try {
   await page.click("[data-pr=tab][data-k=offers]");
   await page.click(".ofcard .ofh >> text=Petersilie");
   await page.waitForSelector("#pv_q");
-  ok((await page.locator("#e_prices .ofr").count()) === 1 && (await page.locator("#e_prices .prow").count()) === 1, "Bearbeiten: Angebot und bezahlter Preis");
+  ok((await page.locator("#e_prices .ofr").count()) === 2 && (await page.locator("#e_prices .prow").count()) === 1, "Bearbeiten: Angebot und bezahlter Preis");
   await page.check("#pv_al"); await page.waitForTimeout(300);
   await page.fill("#pv_max", "0,99"); await page.press("#pv_max", "Tab"); await page.waitForTimeout(300);
   const wr = db.prepare("SELECT alarm, alarm_max, alarm_person FROM offer_watch WHERE item_id='pet'").get();
   ok(wr.alarm === 1 && wr.alarm_max === 99 && wr.alarm_person === "Jonas", "Preisalarm gespeichert");
   await page.click("#pv_open");
   await page.waitForSelector(".pvsvg");
-  ok((await page.locator(".pvsvg circle").count()) === 1 && (await page.locator(".pvsvg line[stroke-width='4']").count()) === 2, "Preisverlauf: 1 Bon, 2 Angebote");
+  ok((await page.locator(".pvsvg circle").count()) === 1 && (await page.locator(".pvsvg line[stroke-width='4']").count()) === 3, "Preisverlauf: 1 Bon, 3 Angebote");
   ok((await page.locator(".pvleg span").count()) === 2, "Legende mit 2 Geschäften");
   await page.screenshot({ path: "/tmp/pr-4.png" });
   await page.click("#pv_x");
