@@ -280,5 +280,5 @@ document.addEventListener("click",e=>{
   }
 });
 
-window.Receipts = { open, render: draw, prices, _test:{ toks, score, candidates, niceName, fold } };
+window.Receipts = { open, render: draw, prices, _test:{ toks, tokMatch, score, candidates, niceName, fold } };
 })();

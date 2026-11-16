@@ -160,6 +160,8 @@ try {
   io.run("tm", "o2", "Lidl", "Tomatenmark", "Baresa", 59, 89, 295, "kg", "200 g", 0, d(-1), d(4), "x");
   io.run("tm", "o3", "Lidl", "Bio Tomatenmark", "", 79, null, 395, "kg", "200 g", 1, d(-1), d(4), "x");
   io.run("tm", "o4", "Penny", "Tomatenmark", "", 69, null, null, "", "", 0, d(2), d(8), "x");
+  io.run("hafer", "o7", "Aldi", "Bio-Haferdrink", "My Vay", 90, null, 90, "l", "1 l", 1, d(-1), d(4), "x");
+  io.run("hafer", "o8", "Rewe", "Vegan Haferdrink Barista Edition", "Oatly", 179, null, 179, "l", "1 l", 0, d(-1), d(4), "x");
   io.run("skyr", "o6", "Penny", "Skyr", "", 99, 149, 198, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("tm", "o5", "Lidl", "Tomatenmark Großpackung", "", 129, null, 258, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
@@ -172,8 +174,10 @@ try {
   await page.screenshot({ path: "/tmp/pr-1.png" });
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
-  ok((await page.locator(".ofcard").count()) === 3, "3 Kärtchen mit Angeboten");
-  ok((await page.locator(".sec", { hasText: "Schon mal gekauft · 1" }).count()) === 1 && /2× gekauft/.test(await page.locator(".ofcard", { hasText: "Skyr" }).textContent()), "Abschnitt „Schon mal gekauft“ mit Skyr");
+  ok((await page.locator(".ofcard").count()) === 4, "4 Kärtchen mit Angeboten");
+  const haf = await page.locator(".ofcard", { hasText: "Haferdrink" }).locator(".ofr").allTextContents();
+  ok(haf.length === 2 && /Barista.*schon gekauft/.test(haf[0]) && /My Vay/.test(haf[1]) && !/schon gekauft/.test(haf[1]), "schon gekaufte Sorte zuerst: " + haf.join(" | "));
+  ok((await page.locator(".sec", { hasText: "Schon mal gekauft · 2" }).count()) === 1 && /2× gekauft/.test(await page.locator(".ofcard", { hasText: "Skyr" }).textContent()), "Abschnitt „Schon mal gekauft“ mit Skyr");
   const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
   const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
   ok(/Großpackung/.test(tmTitles[0]) && /Baresa/.test(tmTitles[1]) && /Bio Tomatenmark/.test(tmTitles[2]), "Reihenfolge nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));

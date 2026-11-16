@@ -25,6 +25,20 @@ function byUnit(a,b){
 // das verhältnismäßig günstigste Angebot (Grundpreis); Bio ist nur ein Kennzeichen
 function pick(list){ return list.length ? list.slice().sort(byUnit)[0] : null; }
 function bestNow(id, shop){ return pick(offersOf(id).filter(o=>isNow(o) && (!shop || o.shop===shop))); }
+// Angebot für genau die Sorte, die ihr laut Kassenzettel schon gekauft habt?
+// Verglichen werden nur die Wörter des Bon-Texts, die über den Artikelnamen hinausgehen (Marke, Sorte),
+// z. B. „HAFERDR. BARISTA“ beim Artikel „Haferdrink“ → „barista“ muss im Angebot vorkommen.
+function knownVariant(o){
+  const raws=(P.data && P.data.bought && P.data.bought[o.itemId])||[]; if(!raws.length || !window.Receipts) return false;
+  const T=window.Receipts._test, it=itemById(o.itemId); if(!it) return false;
+  const nameT=T.toks(it.name), offT=T.toks([o.brand,o.title].join(" "));
+  return raws.some(raw=>{
+    const extra=T.toks(raw).filter(r=>!nameT.some(n=>T.tokMatch(r,n)));
+    if(!extra.length) return false;
+    const hit=extra.filter(r=>offT.some(t=>T.tokMatch(r,t))).length;
+    return hit/extra.length>=0.66;
+  });
+}
 function offerTitle(o){ const t=o.title||""; return (o.brand && !t.toLowerCase().includes(o.brand.toLowerCase()) ? o.brand+" " : "")+t; }
 function validText(o){ return o.from>today() ? "ab "+dayText(o.from) : "bis "+dayText(o.to); }
 function refText(o){ return o.refPrice && o.refUnit && !(o.refUnit==="Stk" && o.refPrice===o.price) ? eur(o.refPrice)+"/"+o.refUnit : ""; }
@@ -66,12 +80,12 @@ function draw(){
   app.innerHTML = P.tab==="compare" ? compareHtml() : offersHtml();
 }
 function offerRow(o){
-  return '<div class="ofr"><div class="ofl"><b>'+esc(o.shop)+'</b> '+esc(offerTitle(o))+(o.bio?' <span class="bio">Bio</span>':'')+
+  return '<div class="ofr'+(knownVariant(o)?' known':'')+'"><div class="ofl"><b>'+esc(o.shop)+'</b> '+esc(offerTitle(o))+(o.bio?' <span class="bio">Bio</span>':'')+(knownVariant(o)?' <span class="kn">schon gekauft</span>':'')+
     '<small>'+[o.amount, validText(o)].filter(Boolean).map(esc).join(" · ")+'</small></div>'+
     '<div class="ofp">'+eur(o.price)+(refText(o)?'<em>'+esc(refText(o))+'</em>':'')+(o.oldPrice && o.oldPrice>o.price?'<s>'+eur(o.oldPrice)+'</s>':'')+'</div></div>';
 }
 function itemOffersCard(it, list, extra){
-  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || byUnit(a,b));
+  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || knownVariant(b)-knownVariant(a) || byUnit(a,b));
   const best=pick(sorted.filter(isNow));
   return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+' ⋯</span></button>'+
     sorted.slice(0,6).map(offerRow).join("")+(sorted.length>6?'<div class="small" style="padding:6px 14px 10px">und '+(sorted.length-6)+' weitere</div>':'')+'</div>';
@@ -110,7 +124,7 @@ function offersHtml(){
   }
   const none=checkable.filter(i=>W[i.id] && W[i.id].checkedAt && !offersOf(i.id).length);
   if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+'</button>').join(", ")+'</div>';
-  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Gesucht wird für alles auf der Liste und alles, was ihr schon gekauft habt. Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Sortiert wird nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
+  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Gesucht wird für alles auf der Liste und alles, was ihr schon gekauft habt. Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Oben steht die Sorte, die ihr laut Kassenzettel schon gekauft habt („schon gekauft“), danach geht es nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
   return h;
 }
 
@@ -218,7 +232,7 @@ async function editSection(id, el){
   if(!document.body.contains(el)) return;
   const it=itemById(id); if(!it) return;
   const W=(P.data&&P.data.watch||{})[id]||{};
-  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || byUnit(a,b));
+  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || knownVariant(b)-knownVariant(a) || byUnit(a,b));
   const per=new Map(); for(const p of hist.prices) if(!per.has(p.shop)) per.set(p.shop,p);
   const val=p=>p.unit==="kg" ? p.unitPrice : Math.round(p.price/Math.max(1,p.qty));
   const paid=[...per.values()].sort((a,b)=>val(a)-val(b));

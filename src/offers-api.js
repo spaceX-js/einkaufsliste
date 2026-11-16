@@ -12,9 +12,13 @@ export async function offersApi(request, env, settings, url, h) {
     const { results: offers } = await env.DB.prepare(`SELECT item_id, offer_id, shop, title, brand, price, old_price, ref_price, ref_unit, amount, bio, valid_from, valid_to
       FROM offers WHERE valid_to >= ? ORDER BY price`).bind(today()).all();
     const { results: watch } = await env.DB.prepare("SELECT item_id, query, checked_at, alarm, alarm_max FROM offer_watch").all();
+    // Bon-Texte je Artikel: daran erkennt die App Angebote für genau die Sorte, die ihr schon gekauft habt
+    const { results: raws } = await env.DB.prepare("SELECT DISTINCT item_id, raw FROM receipt_lines WHERE item_id IS NOT NULL AND item_id <> '' AND kind = 'item' LIMIT 5000").all();
+    const bought = {}; for (const r of raws) (bought[r.item_id] = bought[r.item_id] || []).push(r.raw);
     return h.json({ config: { zip: config.zip, shops: config.shops, zipByShop: config.zipByShop }, today: today(),
       offers: offers.map(o => ({ itemId: o.item_id, id: o.offer_id, shop: o.shop, title: o.title, brand: o.brand, price: o.price, oldPrice: o.old_price, refPrice: o.ref_price,
         refUnit: o.ref_unit, amount: o.amount, bio: !!o.bio, from: o.valid_from, to: o.valid_to })),
+      bought,
       watch: Object.fromEntries(watch.map(w => [w.item_id, { query: w.query, checkedAt: w.checked_at, alarm: !!w.alarm, alarmMax: w.alarm_max }])) });
   }
 
