@@ -23,6 +23,9 @@
 
   "observability": { "enabled": true },
 
+  // Workers AI: liest Fotos von Kassenzetteln (kostenloses Tageskontingent)
+  "ai": { "binding": "AI" },
+
   // Test-App für Feature-Branches: eigener Worker, eigene Datenbank, eigene Adresse
   // (einkaufsliste-test.<subdomain>.workers.dev). Deploy: npx wrangler deploy --env test
   "env": {
@@ -36,7 +39,8 @@
           "database_id": "e8ec8aac-4b13-46db-8ad5-4594b96ea800"
         }
       ],
-      "triggers": { "crons": ["*/5 * * * *"] }
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "ai": { "binding": "AI" }
     }
   }
 }

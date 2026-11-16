@@ -384,3 +384,144 @@ test("Von der Liste nehmen: kein Kauf, Häufigkeit bleibt, Rückgängig zählt n
   assert.equal((await state()).buyCount, 2); assert.equal(buys(), 2);
   assert.equal(checkItem({ id: "x", name: "a", store: "s", skip: "ja" }).skip, false, "nur echtes true zählt");
 });
+
+/* ---------- Kassenzettel ---------- */
+import { parseReceipt, rawKey } from "../src/receipt.js";
+
+// Beispiel-Bons im Aufbau der echten Bons (Inhalte erfunden)
+const BON_PENNY = `*** PENNY-MARKT GMBH ***
+*** 50354 Hürth ***
+UID Nr.: DE202748117
+EUR
+BIO KOERN.FRISCH 2,90 B
+2 Stk x 1,45
+VEG.BACON WUERF. 1,99 B
+App-Coupon -0,30 B
+Birnen lose 0,55 B
+0,184 kg x 2,99 EUR/kg
+PENNY Tasche 0,25 A
+--------------------------------------
+SUMME EUR 5,39
+Geg. VISA EUR 5,39
+Steuer % Netto Steuer Brutto
+A= 19,0% 0,21 0,04 0,25
+Seriennnummer Kasse: REWE:18:c0:4d:18:64:bf:00
+03.11.2026 15:48 Bon-Nr.:6558`;
+const BON_LIDL = `Kölnstraße 110
+50354 Hürth-Hermülheim
+EUR
+Apfel rot süß 1,54 A
+0,672 kg x 2,29 EUR/kg
+Lidl Plus Rabatt -0,15
+Kiwi Gold 0,49 x 2 0,98 A
+Coca Cola Zero 0,80 B
+Pfand 0,25 M 0,25 B
+zu zahlen 3,42
+Kreditkarte 3,42
+Summe 1,67 22,33 24,00
+14.11.26 18:31
+Mit Lidl Plus 0,15 EUR gespart`;
+const BON_DM = `04.11.2026 16:06 D05G/2 333797/1 6048
+SauBär Waschschaum 250ml 1,95 1
+Einwegpfand 0,25 §1
+2x 1,65 H-Bio Alpenmilch lakfr 3,30 2
+Papiertragetasche 0,20 1
+SUMME EUR 5,70
+VISA EUR -5,70
+Für diesen Einkauf erhältst Du von dm`;
+const BON_ROSSMANN = `Du hast mit deinen Coupons 1,00€ gespart!
+️️4068134245397️BABYDR.️PFLAUME-BA️️️€0,45️B
+4001638590464️WELEDA️HYDRATING️B️️€9,95*A
+Zwischensumme: €10,40
+Deine Coupon-Ersparnis heute:
+9823219992277 10% COUPONAKTION €1,00
+Summe: €9,40
+12.11.26, 14:03 / 3179 / 02 / 993 / 2188102822 / 1.1.5
+Dirk Rossmann GmbH 3179`;
+
+test("Kassenzettel lesen: Penny mit Menge, Gewicht, Coupon und Tasche", () => {
+  const r = parseReceipt(BON_PENNY);
+  assert.equal(r.shop, "Penny");                       // nicht „Rewe“, obwohl REWE in der Kassennummer steht
+  assert.equal(r.at, "2026-11-03T15:48");
+  assert.equal(r.total, 539); assert.equal(r.sum, 539);
+  assert.deepEqual(r.lines.map(l => [l.raw, l.price, l.qty, l.unit, l.unitPrice, l.discount, l.kind]), [
+    ["BIO KOERN.FRISCH", 290, 2, "stk", 145, 0, "item"],
+    ["VEG.BACON WUERF.", 169, 1, "stk", 199, 30, "item"],
+    ["Birnen lose", 55, 0.184, "kg", 299, 0, "item"],
+    ["PENNY Tasche", 25, 1, "stk", 25, 0, "bag"]]);
+});
+test("Kassenzettel lesen: Lidl, dm und Rossmann", () => {
+  const l = parseReceipt(BON_LIDL);
+  assert.equal(l.shop, "Lidl"); assert.equal(l.at, "2026-11-14T18:31"); assert.equal(l.total, 342); assert.equal(l.sum, 342);
+  assert.deepEqual(l.lines.map(x => [x.raw, x.price, x.qty, x.unitPrice, x.kind]),
+    [["Apfel rot süß", 139, 0.672, 229, "item"], ["Kiwi Gold", 98, 2, 49, "item"], ["Coca Cola Zero", 80, 1, 80, "item"], ["Pfand 0,25 M", 25, 1, 25, "pfand"]]);
+  const d = parseReceipt(BON_DM);
+  assert.equal(d.shop, "dm"); assert.equal(d.at, "2026-11-04T16:06"); assert.equal(d.total, 570); assert.equal(d.sum, 570);
+  assert.deepEqual(d.lines.map(x => [x.raw, x.qty, x.unitPrice, x.kind]),
+    [["SauBär Waschschaum 250ml", 1, 195, "item"], ["Einwegpfand", 1, 25, "pfand"], ["H-Bio Alpenmilch lakfr", 2, 165, "item"], ["Papiertragetasche", 1, 20, "bag"]]);
+  const ro = parseReceipt(BON_ROSSMANN);
+  assert.equal(ro.shop, "Rossmann"); assert.equal(ro.at, "2026-11-12T14:03");
+  assert.equal(ro.total, 940); assert.equal(ro.sub, 1040); assert.equal(ro.sum, 1040);
+  assert.deepEqual(ro.lines.map(x => [x.ean, x.raw, x.price]), [["4068134245397", "BABYDR. PFLAUME-BA", 45], ["4001638590464", "WELEDA HYDRATING B", 995]]);
+  assert.equal(rawKey("BIO  KOERN. FRISCH"), "bio koern.frisch");
+});
+
+test("Kassenzettel speichern: neue Artikel, Abhaken, gelernte Zuordnung, Preise, doppelt", async () => {
+  const env = await setup(); const ck = await login(env);
+  const d1 = { DB: env.DB, ASSETS: env.ASSETS };
+  await post(d1, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Penny", "Lidl"] }, { id: "drogerie", name: "Drogerie" }] });
+  await post(d1, ck, "/api/item", { id: "birne", name: "Birnen", store: "supermarkt", done: false, addedAt: new Date().toISOString() });
+  await post(d1, ck, "/api/item", { id: "skyr", name: "Skyr", store: "supermarkt", done: true, doneAt: new Date().toISOString(), buyCount: 3 });
+  // Text → Zeilen
+  let res = await post(d1, ck, "/api/receipt/parse", { text: BON_PENNY });
+  const parsed = await res.json();
+  assert.equal(parsed.shop, "Penny"); assert.equal(parsed.lines.length, 4);
+  assert.ok(parsed.lines.every(l => l.alias === ""));
+  // speichern: Birnen zugeordnet (steht auf der Liste → abhaken), Frischkäse neu, Bacon ohne Artikel, Tasche ignoriert
+  const lines = parsed.lines.map(l => ({ ...l }));
+  lines[0].newName = "Körniger Frischkäse"; lines[2].itemId = "birne"; lines[3].ignore = true;
+  const body = { shop: "Penny", store: "supermarkt", at: parsed.at, total: parsed.total, source: "pdf", person: "Jonas", tick: true, lines };
+  res = await post(d1, ck, "/api/receipt/save", body);
+  const saved = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(saved)); assert.equal(saved.ticked, 1); assert.equal(saved.created, 1);
+  // doppelt hochladen geht nicht
+  assert.equal((await post(d1, ck, "/api/receipt/save", body)).status, 409);
+  const st = await (await get(d1, ck, "/api/state")).json();
+  const birne = st.items.find(i => i.id === "birne"), fk = st.items.find(i => i.name === "Körniger Frischkäse");
+  assert.equal(birne.done, true); assert.equal(birne.buyCount, 1);
+  assert.ok(fk && fk.done && fk.store === "supermarkt" && fk.shops[0] === "Penny");
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM purchases WHERE item_id = 'birne'").get().n, 1);
+  // beim nächsten Bon kennt die App die Zuordnungen schon – auch die ignorierte Tasche
+  const again = await (await post(d1, ck, "/api/receipt/parse", { text: BON_PENNY })).json();
+  assert.deepEqual(again.lines.map(l => l.alias), [fk.id, "", "birne", "-"]);
+  // anderes Geschäft: Zuordnung wird übernommen, „ignorieren“ aber nicht
+  const lidl = await (await post(d1, ck, "/api/receipt/parse", { text: "Lidl Plus\nBirnen lose 0,31 A\nVEG.BACON WUERF. 1,99 A\nzu zahlen 2,30\n14.11.26 18:31" })).json();
+  assert.equal(lidl.shop, "Lidl"); assert.deepEqual(lidl.lines.map(l => l.alias), ["birne", ""]);
+  // Preise je Artikel
+  const pr = await (await get(d1, ck, "/api/prices?id=birne")).json();
+  assert.deepEqual(pr.prices.map(p => [p.shop, p.price, p.unit, p.unitPrice]), [["Penny", 55, "kg", 299]]);
+  // Liste, Einzelansicht, Löschen
+  const list = await (await get(d1, ck, "/api/receipts")).json();
+  assert.equal(list.receipts.length, 1); assert.equal(list.receipts[0].n, 3); assert.equal(list.receipts[0].total, 539);
+  const one = await (await get(d1, ck, "/api/receipt?id=" + saved.id)).json();
+  assert.deepEqual(one.lines.map(l => [l.kind, l.itemId]), [["item", fk.id], ["item", ""], ["item", "birne"], ["skip", ""]]);
+  await post(d1, ck, "/api/receipt/delete", { id: saved.id });
+  assert.equal((await (await get(d1, ck, "/api/receipts")).json()).receipts.length, 0);
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM receipt_lines").get().n, 0);
+});
+
+test("Kassenzettel: ungültige Angaben und Foto ohne Bilderkennung", async () => {
+  const env = await setup(); const ck = await login(env);
+  const ok = { shop: "Lidl", store: "supermarkt", at: "2026-11-14T18:31", total: 100, lines: [{ raw: "X", price: 100 }] };
+  for (const bad of [{ ...ok, shop: "" }, { ...ok, at: "gestern" }, { ...ok, store: "../x" }, { ...ok, lines: [] }, { ...ok, total: -5 }])
+    assert.equal((await post(env, ck, "/api/receipt/save", bad)).status, 400);
+  assert.equal((await post(env, ck, "/api/receipt/save", ok)).status, 200);
+  assert.equal((await post(env, ck, "/api/receipt/ocr", { images: ["data:image/jpeg;base64,AAAA"] })).status, 500);
+  // mit (nachgebauter) Bilderkennung: Text wird wie ein PDF gelesen
+  const calls = [];
+  env.AI = { run: async (model, input) => { calls.push(model); return { response: BON_LIDL }; } };
+  const r = await (await post(env, ck, "/api/receipt/ocr", { images: ["data:image/jpeg;base64,AAAA"] })).json();
+  assert.equal(r.shop, "Lidl"); assert.equal(r.lines.length, 4); assert.equal(calls[0], "@cf/mistralai/mistral-small-3.1-24b-instruct");
+  assert.equal((await post(env, ck, "/api/receipt/ocr", { images: ["javascript:alert(1)"] })).status, 400);
+  assert.equal((await call(env, "/api/receipts")).status, 401);
+});

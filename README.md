@@ -18,6 +18,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 - „Dieses Handy gehört“: Jonas oder Clara; Einträge des anderen zeigen „von …“
 - **Labels für einzelne Geschäfte** (optional, mehrere pro Eintrag): z. B. „Edeka“ und „Aldi“ an „Brezel“. Setzen über „⋯“ oder beim Eintippen mit `@`: `Brezel @Edeka @Aldi`. Die Filter oben („Filter: Alle · Aldi · Edeka …“) zeigen nur Sachen mit einem der gewählten Labels; mehrere Filter gleichzeitig = „oder“. Welche Labels es gibt, steht pro Laden unter Einstellungen → Läden bearbeiten (`settings.stores`); am Eintrag in der Spalte `shop` als `Edeka|Aldi`
 - **Statistik** (Diagramm-Symbol oben rechts): Woche, Monat oder Jahr, mit ‹ › blättern, nach Laden filtern. Kennzahlen (gekauft, verschiedene Artikel, Einkaufstage, Vergleich zum vorigen Zeitraum), Verlauf, häufigste Artikel, Warengruppen, Läden, Labels, wer abgehakt hat. Grundlage ist die Tabelle `purchases`: ein Eintrag pro Abhaken (Rücknahme innerhalb 10 Minuten löscht ihn wieder)
+- **Kassenzettel** (Bon-Symbol oben rechts): PDF (Rewe, Penny, dm, Rossmann …) oder Foto/Screenshot (Lidl Plus, Papierbon) hochladen. Erkannt werden Geschäft, Datum, Summe und jede Zeile mit Menge, Kilopreis und Rabatt (`src/receipt.js`). Jede Zeile wird einem Artikel zugeordnet (Vorschläge über Wortanfänge, `public/receipt.js`), als neuer Artikel angelegt oder ignoriert; die Zuordnung merkt sich die App je Geschäft (`receipt_alias`). Sachen, die auf der Liste standen, werden auf Wunsch abgehakt. Im Bearbeiten-Dialog steht danach „Zuletzt bezahlt“ je Geschäft. PDFs werden im Browser mit pdf.js gelesen (`public/vendor/`), Fotos mit Workers AI (Binding `AI`, kostenloses Tageskontingent); Bilder werden nicht gespeichert
 - Läden umbenennen, sortieren, neu anlegen; Passwort ändern; Abmelden
 - Zweites Handy sieht Änderungen nach spätestens ~4 Sekunden (die Seite fragt alle 4 s, ob sich etwas geändert hat)
 - Funktioniert als Home-Bildschirm-App (Icon + Manifest); zeigt ohne Netz den zuletzt geladenen Stand
@@ -31,12 +32,14 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 | `public/groups.js` | Warengruppen und Stichwortregeln |
 | `public/sw.js` | Service Worker: zeigt Benachrichtigungen (öffentlich, enthält keine Daten) |
 | `src/push.js` | Web Push ohne Fremddienst: VAPID-Signatur und Verschlüsselung (RFC 8291/8292) |
+| `src/receipt.js`, `src/receipts-api.js` | Kassenzettel lesen, speichern, Preise (`/api/receipt/*`, `/api/receipts`, `/api/prices`) |
+| `public/receipt.js`, `public/vendor/pdf*.mjs` | Kassenzettel-Oberfläche; pdf.js (Apache-2.0, Mozilla) |
 | `migrations/` | Änderungen für eine bestehende Datenbank |
 | `public/icon*.png`, `public/manifest.webmanifest` | Icon und App-Manifest (öffentlich) |
 | `d1-schema.sql` | Tabellen `items`, `settings`, `login_attempts`, `push_subs`, `purchases` (für eine neue Datenbank) |
 | `wrangler.jsonc` | Cloudflare-Einstellungen (Datenbank `einkaufsliste-db`) |
 | `test/worker.test.mjs` | Tests gegen eine lokale SQLite-Datenbank (`npm test`) |
-| `test/e2e.mjs` | Klicktest im Browser (lokal, braucht Playwright) |
+| `test/e2e.mjs`, `test/e2e-kassenzettel.mjs` | Klicktests im Browser (lokal, brauchen Playwright bzw. pdf-lib) |
 
 Das Passwort liegt nur als PBKDF2-Hash in `settings` (`pw_salt`, `pw_hash`). Nach 10 Fehlversuchen in 15 Minuten wird eine IP kurz gesperrt.
 `settings.rev` ist ein Änderungszähler: Die Seite lädt die Liste nur neu, wenn er sich geändert hat.
@@ -45,13 +48,15 @@ Benachrichtigungen laufen über die Push-Dienste von Apple/Google, die der Brows
 
 ## Kosten
 
-Alles bleibt im kostenlosen Cloudflare-Tarif (Workers Free: 100.000 Aufrufe/Tag, D1 Free: 5 Mio. gelesene Zeilen/Tag).
+Alles bleibt im kostenlosen Cloudflare-Tarif (Workers Free: 100.000 Aufrufe/Tag, D1 Free: 5 Mio. gelesene Zeilen/Tag, Workers AI Free: 10.000 Neurons/Tag – reicht für viele Kassenzettel-Fotos am Tag; ist es aufgebraucht, klappt das Foto-Lesen erst am nächsten Tag wieder, es entstehen keine Kosten).
 Ein offenes Handy erzeugt ca. 900 Aufrufe pro Stunde; im Hintergrund fragt die Seite nicht nach.
 
 ## Veröffentlichen (Deploy)
 
 Cloudflare baut und veröffentlicht automatisch bei jedem Push auf `main` (Workers Builds, mit GitHub verbunden).
 Manuell: `npm install && npx wrangler deploy`.
+
+**Test-App für neue Funktionen:** Eigener Worker `einkaufsliste-test` (mit demselben Repo verbunden, Produktions-Branch = Feature-Branch, Deploy-Befehl `npx wrangler deploy --env test`). Er nutzt die Datenbank `einkaufsliste-test-db` und zeigt oben eine rote Leiste „TEST-VERSION“. Adresse: `einkaufsliste-test.<subdomain>.workers.dev`.
 
 ## Datenbank neu aufsetzen
 

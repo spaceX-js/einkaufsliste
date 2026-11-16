@@ -4,6 +4,7 @@
 // Benachrichtigungen: Web Push (src/push.js); der Schlüssel dafür wird beim ersten Bedarf erzeugt und in settings gespeichert.
 import { generateVapid, sendPush } from "./push.js";
 import { runOffersProbe } from "./offers.js";
+import { receiptApi } from "./receipts-api.js";
 
 const COOKIE = "ek_session";
 const ITER = 100000;
@@ -166,6 +167,10 @@ async function api(request, env, settings, url, ctx) {
     await env.DB.batch([setSetting(env, "pw_salt", salt), setSetting(env, "pw_hash", hash), setSetting(env, "session_secret", secret)]);
     return json({ ok: true }, 200, { "Set-Cookie": cookie(await sessionToken(secret)) });
   }
+
+  // Kassenzettel (src/receipts-api.js)
+  const rr = await receiptApi(request, env, settings, url, { json, readJson, bumpRev, revOf, people });
+  if (rr) return rr;
 
   return json({ error: "Nicht gefunden." }, 404);
 }

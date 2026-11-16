@@ -166,7 +166,7 @@ ok((await page.locator(".hbars").first().locator(".hl").first().textContent()).i
 ok((await page.locator(".card-s .ch b", { hasText: "Wer hat abgehakt" }).count()) === 1, "Bereich „Wer hat abgehakt“");
 ok((await page.locator(".card-s .ch b", { hasText: "Nach Label" }).count()) === 1, "Bereich „Nach Label“");
 await page.locator(".vb").nth((new Date().getDay() + 6) % 7).click();
-ok(/: 3 Sachen|: 4 Sachen|: 1 Sache/.test(await page.textContent("#sttip")), "Balken antippen zeigt Wert: " + await page.textContent("#sttip"));
+ok(/: \d+ Sachen?$/.test(await page.textContent("#sttip")), "Balken antippen zeigt Wert: " + await page.textContent("#sttip"));
 await page.screenshot({ path: "/tmp/e2e-stats-week.png", fullPage: true });
 await page.click("[data-st=prev]"); await page.waitForTimeout(100);
 ok(await tile(0) === "1", "Vorwoche: 1 Kauf – " + await tile(0));

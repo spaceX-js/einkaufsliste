@@ -65,7 +65,8 @@ async function refresh(force){
     if(Array.isArray(d.people)&&d.people.length) S.people=d.people;
     if(d.stage==="test" && !document.getElementById("testbadge")){ const b=document.createElement("div"); b.id="testbadge"; b.textContent="TEST-VERSION · eigene Testdaten"; document.body.prepend(b); }
     fixCur(); saveLocal();
-    if(!$("modal").innerHTML) render(); else renderHead(true);
+    if($("modal").innerHTML){ if(S.view==="list") renderHead(true); }
+    else if(S.view!=="receipts") render();
   }catch(e){ if(!S.loaded){ S.loaded=true; render(); } }
 }
 // Eine Änderung zum Server schicken. Bis sie durch ist, werden keine Server-Stände übernommen,
@@ -148,10 +149,11 @@ function storeBtns(){
     return '<button class="store'+(s.id===S.cur?' on':'')+'" data-store="'+esc(s.id)+'">'+esc(s.name)+'<span class="cnt">'+n+'</span></button>'; }).join("");
 }
 const GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>';
+const RECEIPT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>';
 const CHART='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>';
 function renderHead(light){
   const h=$("head");
-  if(S.view==="stats") return;
+  if(S.view!=="list") return;
   if(light && $("storebar")){
     // Nur Läden, Platzhalter und Status aktualisieren, damit das Eingabefeld (und die Tastatur) stehen bleibt
     $("storebar").innerHTML=storeBtns();
@@ -159,7 +161,7 @@ function renderHead(light){
     $("net").textContent = S.online ? "" : "offline";
     renderSugg(); return;
   }
-  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
+  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
     '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
     '<div class="sugg" id="sugg"></div>';
@@ -180,6 +182,7 @@ function renderSugg(){
 }
 function render(){
   if(S.view==="stats"){ renderStats(); return; }
+  if(S.view==="receipts"){ window.Receipts.render(); return; }
   renderHead(!!$("storebar"));
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
@@ -242,6 +245,7 @@ function openEdit(id){
       G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
     '<label class="f"><span>Labels (optional, mehrere möglich)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
+    '<div id="e_prices"></div>'+
     (it.done?'':'<button class="btn ghost block" id="e_drop">Von der Liste nehmen (nicht gekauft)</button>')+
     '<div class="acts"><button class="btn danger" id="e_del">Ganz löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>'+
     '<div class="small" style="margin:8px 2px 0">„Ganz löschen“ entfernt den Artikel auch aus „Schon mal gekauft“.</div>');
@@ -250,6 +254,7 @@ function openEdit(id){
     m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
   bindSh();
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
+  if(window.Receipts) window.Receipts.prices(id, $("e_prices"));
   $("e_x").onclick=closeModal;
   $("e_del").onclick=()=>{ $("modal").innerHTML=""; removeItem(id); };
   if($("e_drop")) $("e_drop").onclick=()=>{ $("modal").innerHTML=""; dropItem(id); };
@@ -499,9 +504,14 @@ document.addEventListener("click",e=>{
   else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){ S.q=""; addItem(it.name,S.cur); const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
   else if(t.dataset.act==="menu") openMenu();
   else if(t.dataset.act==="stats") openStats();
+  else if(t.dataset.act==="receipts") window.Receipts.open();
   else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; saveView(); render(); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").innerHTML) closeModal(); });
+
+/* ---------- Für Kassenzettel (receipt.js) ---------- */
+window.App = { S, api, esc, toast, sheet, closeModal, stores, storeName, labelsOf, render, refresh, $, norm, G,
+  close(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); } };
 
 /* ---------- Start ---------- */
 loadLocal(); fixCur(); render(); refresh(true);
