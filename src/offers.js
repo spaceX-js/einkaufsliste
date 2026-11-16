@@ -89,14 +89,21 @@ export function normalizeOffer(o, shops) {
   if (/^thisisnobrand/i.test(brand)) brand = "";              // marktguru-Platzhalter für „ohne Marke“
   const unit = o.unit && (o.unit.shortName || o.unit.name) || "";
   const amount = amountText(o.volume, unit, o.quantity);
-  const refUnit = /^(kg|g)$/i.test(unit) ? "kg" : /^(l|ml)$/i.test(unit) ? "l" : unit ? unit : "";
+  const refUnit = /^(kg|g)$/i.test(unit) ? "kg" : /^(l|ml)$/i.test(unit) ? "l" : /^st/i.test(unit) ? "Stk" : unit ? unit : "";
+  // Grundpreis (je kg, l oder Stück): von marktguru, sonst selbst aus Preis und Packungsgröße
+  let refPrice = cents(o.referencePrice);
+  const vol = Number(o.volume), qn = Number(o.quantity) > 1 ? Number(o.quantity) : 1, price = Number(o.price);
+  if (refPrice == null && vol > 0 && price > 0 && refUnit) {
+    const base = /^g$/i.test(unit) || /^ml$/i.test(unit) ? vol * qn / 1000 : vol * qn;
+    if (base > 0) refPrice = Math.round(price / base * 100);
+  }
   const dates = (o.validityDates || []).filter(d => d && d.to);
   const from = dates.length ? dates.map(d => String(d.from || "").slice(0, 10)).sort()[0] : "";
   const to = dates.length ? dates.map(d => String(d.to).slice(0, 10)).sort().pop() : "";
   const text = [brand, o.product && o.product.name, o.description].filter(Boolean).join(" ");
   const tidy = v => String(v || "").replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
   return { id: String(o.id || ""), shop, adv: adv.join("/"), title: tidy(title).slice(0, 140), brand: tidy(brand).slice(0, 60), price: cents(o.price), oldPrice: cents(o.oldPrice),
-    refPrice: cents(o.referencePrice), refUnit, amount: amount.slice(0, 40), bio: isBio(text) ? 1 : 0, from, to, text };
+    refPrice, refUnit, amount: amount.slice(0, 40), bio: isBio(text) ? 1 : 0, from, to, text };
 }
 
 /* ---------- Einstellungen ---------- */
@@ -139,7 +146,7 @@ export async function checkItem(env, item, config, query) {
 }
 
 /* ---------- Cron: fällige Artikel prüfen, Preisalarme verschicken ---------- */
-export async function refreshOffers(env, deliverAlarm, nowMs = Date.now()) {
+export async function refreshOffers(env, deliverAlarm, nowMs = Date.now(), opts = {}) {
   const settings = {}; for (const r of (await env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offers_config','stores')").all()).results) settings[r.key] = r.value;
   const config = readConfig(settings);
   if (!config.shops.length) return [];
@@ -151,7 +158,7 @@ export async function refreshOffers(env, deliverAlarm, nowMs = Date.now()) {
     FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
     WHERE ((i.done = 0 AND i.store IN (${near.map(() => "?").join(",") || "''"})) OR w.alarm = 1)
       AND (w.checked_at IS NULL OR w.checked_at < ?)
-    ORDER BY w.checked_at IS NOT NULL, w.checked_at LIMIT ?`).bind(...near, since, PER_RUN).all();
+    ORDER BY w.checked_at IS NOT NULL, w.checked_at LIMIT ?`).bind(...near, opts.since || since, opts.limit || PER_RUN).all();
   const out = [];
   for (const it of results) {
     const query = it.query || queryFor(it.name);
@@ -172,6 +179,14 @@ export async function refreshOffers(env, deliverAlarm, nowMs = Date.now()) {
   return out;
 }
 
+// Artikel, für die Angebote gesucht werden: offen in Läden mit Geschäften in der Nähe, oder mit Preisalarm
+export async function watchedCount(env, config, stores, sinceIso) {
+  const near = stores.filter(s => (s.labels || []).some(l => config.shops.includes(l))).map(s => s.id);
+  const r = await env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN w.checked_at IS NULL OR w.checked_at < ? THEN 1 ELSE 0 END) AS due
+    FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
+    WHERE (i.done = 0 AND i.store IN (${near.map(() => "?").join(",") || "''"})) OR w.alarm = 1`).bind(sinceIso, ...near).first();
+  return { total: r.total || 0, due: r.due || 0 };
+}
 // Preisalarm: gültiges Angebot (heute oder demnächst) unter dem Wunschpreis, noch nicht gemeldet
 export async function checkAlarm(env, it, deliverAlarm) {
   const t = today();

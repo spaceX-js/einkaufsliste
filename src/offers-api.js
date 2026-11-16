@@ -1,5 +1,5 @@
 // API für Angebote, Preisalarm und Ladenvergleich.
-import { readConfig, checkItem, queryFor, checkAlarm } from "./offers.js";
+import { readConfig, checkItem, queryFor, checkAlarm, refreshOffers, watchedCount } from "./offers.js";
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const today = () => new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 10);
@@ -59,6 +59,31 @@ export async function offersApi(request, env, settings, url, h) {
         alarm_sent = CASE WHEN offer_watch.alarm_max IS NOT excluded.alarm_max OR offer_watch.alarm <> excluded.alarm THEN '' ELSE offer_watch.alarm_sent END`)
       .bind(item.id, query, alarm ? 1 : 0, max, person, changed ? 1 : 0).run();
     return h.json({ ok: true, query: query || queryFor(item.name), auto: !query });
+  }
+
+  // „Neue Angebote suchen“: Start merken, dann portionsweise alles prüfen, was seit dem Start noch nicht dran war.
+  // Der Browser ruft das so lange auf, bis nichts mehr offen ist (je Aufruf höchstens 8 Artikel).
+  if (path === "/api/offers/refresh" && method === "POST") {
+    const b = await h.readJson(request) || {};
+    const config = readConfig(settings);
+    if (!config.shops.length) return h.json({ error: "Bitte zuerst die Geschäfte in der Nähe auswählen." }, 400);
+    let stores = []; try { stores = JSON.parse(settings.stores || "[]"); } catch (e) {}
+    let started = settings.offers_refresh;
+    if (b.start) {
+      // höchstens alle 2 Minuten von vorn
+      if (started && Date.now() - Date.parse(started) < 2 * 60 * 1000 && !b.again) {} else {
+        started = new Date().toISOString();
+        await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('offers_refresh', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(started).run();
+      }
+    }
+    if (!started) return h.json({ error: "Ungültige Anfrage." }, 400);
+    let errors = [];
+    const res = await refreshOffers(env, h.deliverAll, Date.now(), { since: started, limit: 8 });
+    errors = res.filter(r => r.error).map(r => r.error);
+    const c = await watchedCount(env, config, stores, started);
+    // Fehler bei allen Artikeln dieser Portion: abbrechen statt endlos weiter
+    if (res.length && errors.length === res.length) return h.json({ error: "Angebote konnten nicht abgerufen werden: " + errors[0] }, 502);
+    return h.json({ ok: true, done: c.total - c.due, total: c.total, remaining: res.length ? c.due : 0 });
   }
 
   // Einen Artikel sofort prüfen (z. B. nach geändertem Suchbegriff)

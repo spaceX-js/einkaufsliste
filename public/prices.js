@@ -16,11 +16,18 @@ const isNow = o => o.from<=today() && o.to>=today();
 // alle aktuellen/kommenden Angebote eines Artikels
 const offersOf = id => P.data ? P.data.offers.filter(o=>o.itemId===id) : [];
 // Bio bevorzugt: gibt es Bio, zählt das günstigste Bio-Angebot, sonst das günstigste überhaupt
-function pick(list){ if(!list.length) return null; const bio=list.filter(o=>o.bio); return (bio.length?bio:list).slice().sort((a,b)=>a.price-b.price)[0]; }
+// Vergleich nach Grundpreis (je kg, l, Stück); fehlt er, nach Packungspreis. Verschiedene Einheiten: Grundpreis vor ohne.
+function byUnit(a,b){
+  if(a.refPrice && b.refPrice && a.refUnit===b.refUnit) return a.refPrice-b.refPrice || a.price-b.price;
+  if(a.refPrice && !b.refPrice) return -1; if(b.refPrice && !a.refPrice) return 1;
+  return a.price-b.price;
+}
+// Bio bevorzugt; innerhalb davon das verhältnismäßig günstigste (Grundpreis)
+function pick(list){ if(!list.length) return null; const bio=list.filter(o=>o.bio); return (bio.length?bio:list).slice().sort(byUnit)[0]; }
 function bestNow(id, shop){ return pick(offersOf(id).filter(o=>isNow(o) && (!shop || o.shop===shop))); }
 function offerTitle(o){ const t=o.title||""; return (o.brand && !t.toLowerCase().includes(o.brand.toLowerCase()) ? o.brand+" " : "")+t; }
 function validText(o){ return o.from>today() ? "ab "+dayText(o.from) : "bis "+dayText(o.to); }
-function refText(o){ return o.refPrice && o.refUnit ? eur(o.refPrice)+"/"+o.refUnit : ""; }
+function refText(o){ return o.refPrice && o.refUnit && !(o.refUnit==="Stk" && o.refPrice===o.price) ? eur(o.refPrice)+"/"+o.refUnit : ""; }
 
 /* ---------- Laden ---------- */
 async function load(force){
@@ -60,13 +67,13 @@ function draw(){
 }
 function offerRow(o){
   return '<div class="ofr"><div class="ofl"><b>'+esc(o.shop)+'</b> '+esc(offerTitle(o))+(o.bio?' <span class="bio">Bio</span>':'')+
-    '<small>'+[o.amount, refText(o), validText(o)].filter(Boolean).map(esc).join(" · ")+'</small></div>'+
-    '<div class="ofp">'+eur(o.price)+(o.oldPrice && o.oldPrice>o.price?'<s>'+eur(o.oldPrice)+'</s>':'')+'</div></div>';
+    '<small>'+[o.amount, validText(o)].filter(Boolean).map(esc).join(" · ")+'</small></div>'+
+    '<div class="ofp">'+eur(o.price)+(refText(o)?'<em>'+esc(refText(o))+'</em>':'')+(o.oldPrice && o.oldPrice>o.price?'<s>'+eur(o.oldPrice)+'</s>':'')+'</div></div>';
 }
 function itemOffersCard(it, list, extra){
-  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || a.price-b.price);
+  const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || (b.bio-a.bio) || byUnit(a,b));
   const best=pick(sorted.filter(isNow));
-  return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'ab '+eur(best.price):'')+' ⋯</span></button>'+
+  return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+' ⋯</span></button>'+
     sorted.slice(0,6).map(offerRow).join("")+(sorted.length>6?'<div class="small" style="padding:6px 14px 10px">und '+(sorted.length-6)+' weitere</div>':'')+'</div>';
 }
 function offersHtml(){
@@ -80,6 +87,7 @@ function offersHtml(){
   const nearStores=new Set(A.stores().filter(s=>(s.labels||[]).some(l=>cfg.shops.includes(l))).map(s=>s.id));
   const checkable=openItems.filter(i=>nearStores.has(i.store));
   const pending=checkable.filter(i=>!W[i.id] || !W[i.id].checkedAt).length;
+  h+='<button class="btn block" id="pr_refresh" data-pr="refresh"'+(P.refreshing?' disabled':'')+'>'+(P.refreshing?esc(P.refreshing):'Neue Angebote suchen')+'</button>';
   h+='<div class="sec"><b>Auf eurer Liste · '+withOffers.length+'</b><span>'+checkable.length+' Sachen geprüft'+(pending?', '+pending+' noch nicht':'')+'</span></div>';
   if(withOffers.length) h+=withOffers.sort((a,b)=>a.name.localeCompare(b.name,"de")).map(i=>itemOffersCard(i, offersOf(i.id))).join("");
   else h+='<div class="list"><div class="empty">'+(pending?'Die App sucht gerade – alle paar Minuten kommen ein paar Sachen dazu.':'Für eure offenen Sachen gibt es gerade keine Angebote.')+'</div></div>';
@@ -91,8 +99,25 @@ function offersHtml(){
   }
   const none=checkable.filter(i=>W[i.id] && W[i.id].checkedAt && !offersOf(i.id).length);
   if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+'</button>').join(", ")+'</div>';
-  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden neu geprüft. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Bio wird bevorzugt.</div>';
+  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Sortiert wird nach Grundpreis (je kg, Liter oder Stück) – Bio steht trotzdem vorne.</div>';
   return h;
+}
+
+/* ---------- Auf Knopfdruck alles neu suchen ---------- */
+async function refreshAll(){
+  if(P.refreshing) return;
+  P.refreshing="Suche läuft …"; draw();
+  let start=true, n=0, err="";
+  try{
+    while(n<40){
+      const r=await A.api("POST","/api/offers/refresh",{start, again:start});
+      start=false; n++;
+      P.refreshing="Suche läuft … "+r.done+" von "+r.total+" geprüft"; const b=$("pr_refresh"); if(b) b.textContent=P.refreshing;
+      if(!r.remaining) break;
+    }
+  }catch(e){ err=e.message; }
+  P.refreshing=""; P.at=0; await load(true);
+  A.toast(err || "Angebote sind auf dem neuesten Stand");
 }
 
 /* ---------- Ladenvergleich ---------- */
@@ -116,7 +141,13 @@ function compareHtml(){
   if(!items.length) return h+'<div class="list"><div class="empty">Bei '+esc(store.name)+' steht gerade nichts auf der Liste.</div></div>';
   // Tabelle Artikel × Geschäft
   const grid=items.map(it=>{ const row={it, at:{}}; shops.forEach(s=>row.at[s]=priceAt(it,s)); const known=shops.map(s=>row.at[s]).filter(Boolean).map(x=>x.price);
-    row.est=known.length?median(known):null; row.min=known.length?Math.min(...known):null; return row; });
+    row.est=known.length?median(known):null;
+    // günstigstes Geschäft für diese Sache: nach Grundpreis, wenn alle Preise Angebote mit derselben Einheit sind, sonst nach Preis
+    const ps=shops.map(s=>({s,p:row.at[s]})).filter(x=>x.p);
+    const unitOk=ps.length>1 && ps.every(x=>x.p.o && x.p.o.refPrice && x.p.o.refUnit===ps[0].p.o.refUnit);
+    const key=x=>unitOk?x.p.o.refPrice:x.p.price;
+    const win=ps.slice().sort((a,b)=>key(a)-key(b))[0];
+    row.minShop=win?win.s:null; row.min=win?win.p.price:null; return row; });
   const noPrice=grid.filter(r=>r.est==null);
   const res=shops.map(s=>{ let sum=0, known=0, offers=0, est=0;
     grid.forEach(r=>{ const p=r.at[s]; if(p){ sum+=p.price; known++; if(p.src==="offer") offers++; } else if(r.est!=null){ sum+=r.est; est++; } });
@@ -129,10 +160,11 @@ function compareHtml(){
     let x='<button class="cmprow'+(ix===0&&res.length>1?' best':'')+'" data-pr="shop" data-k="'+esc(r.shop)+'"><span><b>'+esc(r.shop)+'</b><small>'+r.known+' von '+priced+' Preisen bekannt'+(r.offers?' · '+r.offers+' im Angebot':'')+'</small></span><span class="cmpsum">'+(r.est?'~':'')+eur(r.sum)+'</span></button>';
     if(openS) x+='<div class="cmpdet">'+grid.filter(g=>g.est!=null).map(g=>{ const p=g.at[r.shop];
       const v=p?p.price:g.est, src=p?(p.src==="offer"?'Angebot '+validText(p.o):'Bon '+shortDate(p.at)):'geschätzt';
-      return '<div class="cmpi'+(p&&g.min===p.price&&res.length>1?' low':'')+(p?'':' est')+'"><span>'+esc(g.it.name)+'<small>'+esc(src)+'</small></span><b>'+(p?'':'~')+eur(v)+'</b></div>'; }).join("")+'</div>';
+      const rt=p&&p.o?refText(p.o):"";
+      return '<div class="cmpi'+(p&&g.minShop===r.shop&&res.length>1?' low':'')+(p?'':' est')+'"><span>'+esc(g.it.name)+'<small>'+esc(src)+(rt?' · '+esc(rt):'')+'</small></span><b>'+(p?'':'~')+eur(v)+'</b></div>'; }).join("")+'</div>';
     return x; }).join("")+'</div>';
   // günstigster Mix: jede Sache dort, wo sie am wenigsten kostet
-  const mix=grid.filter(g=>g.min!=null).map(g=>{ const s=shops.filter(sh=>g.at[sh] && g.at[sh].price===g.min); return {g, shop:s[0], price:g.min}; });
+  const mix=grid.filter(g=>g.minShop).map(g=>({g, shop:g.minShop, price:g.min}));
   if(mix.length && res.length>1){
     const by=new Map(); mix.forEach(m=>{ if(!by.has(m.shop)) by.set(m.shop,[]); by.get(m.shop).push(m); });
     const total=mix.reduce((a,m)=>a+m.price,0);
@@ -175,7 +207,7 @@ async function editSection(id, el){
   if(!document.body.contains(el)) return;
   const it=itemById(id); if(!it) return;
   const W=(P.data&&P.data.watch||{})[id]||{};
-  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || a.price-b.price);
+  const cur=offersOf(id).slice().sort((a,b)=>(a.from>today())-(b.from>today()) || (b.bio-a.bio) || byUnit(a,b));
   const per=new Map(); for(const p of hist.prices) if(!per.has(p.shop)) per.set(p.shop,p);
   const val=p=>p.unit==="kg" ? p.unitPrice : Math.round(p.price/Math.max(1,p.qty));
   const paid=[...per.values()].sort((a,b)=>val(a)-val(b));
@@ -255,6 +287,7 @@ document.addEventListener("click",e=>{
   if(k==="close") A.close();
   else if(k==="tab"){ P.tab=b.dataset.k; draw(); window.scrollTo(0,0); }
   else if(k==="reload") load(true);
+  else if(k==="refresh") refreshAll();
   else if(k==="config") openConfig();
   else if(k==="cmpstore"){ P.cmpStore=b.dataset.k; P.openShop=""; draw(); }
   else if(k==="shop"){ P.openShop = P.openShop===b.dataset.k ? "" : b.dataset.k; draw(); }

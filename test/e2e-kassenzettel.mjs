@@ -21,7 +21,9 @@ const types = { html: "text/html; charset=utf-8", js: "text/javascript; charset=
 const ASSETS = { fetch: async req => { let p = new URL(req.url).pathname; if (p === "/") p = "/index.html"; const f = new URL("../public" + p, import.meta.url);
   return existsSync(f) ? new Response(readFileSync(f), { headers: { "Content-Type": types[p.split(".").pop()] || "application/octet-stream" } }) : new Response("nicht da", { status: 404 }); } };
 const OCR_TEXT = "Lidl\nKiwi Gold 0,49 x 2 0,98 A\nBio Feldsalat 1,29 A\nLidl Plus Rabatt -0,18\nzu zahlen 2,09\n14.11.26 18:31";
-let aiCalls = 0;
+let aiCalls = 0, mgCalls = 0;
+const OFFERS_FETCH = async url => { mgCalls++; if (String(url) === "https://www.marktguru.de/") return new Response('<script type="application/json">{"config":{"apiKey":"A","clientKey":"C"}}</script>');
+  return new Response(JSON.stringify({ results: [] })); };
 const AI = { run: async () => { aiCalls++; await new Promise(r => setTimeout(r, 300)); return { response: OCR_TEXT }; } };
 
 const salt = "00112233445566778899aabbccddeeff";
@@ -50,7 +52,7 @@ const BON = ["*** PENNY-MARKT GMBH ***", "*** 50354 Hürth ***", "EUR", "BIO KOE
 const server = createServer(async (req, res) => {
   const body = ["GET", "HEAD"].includes(req.method) ? undefined : await new Promise(r => { const c = []; req.on("data", d => c.push(d)); req.on("end", () => r(Buffer.concat(c))); });
   const h = new Headers(); for (const [k, v] of Object.entries(req.headers)) h.set(k, v);
-  const r = await worker.fetch(new Request("http://127.0.0.1:8789" + req.url, { method: req.method, headers: h, body }), { DB, ASSETS, AI, STAGE: "test" });
+  const r = await worker.fetch(new Request("http://127.0.0.1:8789" + req.url, { method: req.method, headers: h, body }), { DB, ASSETS, AI, STAGE: "test", OFFERS_FETCH });
   const out = {}; r.headers.forEach((v, k) => out[k] = v); out["set-cookie"] = (out["set-cookie"] || "").replace("; Secure", "");
   if (!out["set-cookie"]) delete out["set-cookie"];
   res.writeHead(r.status, out); res.end(Buffer.from(await r.arrayBuffer()));
@@ -158,6 +160,7 @@ try {
   io.run("tm", "o2", "Lidl", "Tomatenmark", "Baresa", 59, 89, 295, "kg", "200 g", 0, d(-1), d(4), "x");
   io.run("tm", "o3", "Lidl", "Bio Tomatenmark", "", 79, null, 395, "kg", "200 g", 1, d(-1), d(4), "x");
   io.run("tm", "o4", "Penny", "Tomatenmark", "", 69, null, null, "", "", 0, d(2), d(8), "x");
+  io.run("tm", "o5", "Lidl", "Tomatenmark Großpackung", "", 129, null, 258, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
   db.prepare("INSERT INTO offer_watch (item_id,query,checked_at) VALUES ('pet','',?),('tm','',?),('birne','',?)").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
   await page.keyboard.press("Escape");
@@ -169,6 +172,10 @@ try {
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
   ok((await page.locator(".ofcard").count()) === 2, "2 Sachen mit Angeboten");
+  const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
+  const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
+  ok(/Bio Tomatenmark/.test(tmTitles[0]) && /Großpackung/.test(tmTitles[1]) && /Baresa/.test(tmTitles[2]), "Reihenfolge: Bio, dann nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));
+  ok(/2,58 €\/kg/.test(await page.locator(".ofcard", { hasText: "Tomatenmark" }).textContent()), "Grundpreis wird angezeigt");
   ok(/ab Do|ab Mo|ab Di|ab Mi|ab Fr|ab Sa|ab So/.test(await page.locator(".ofcard", { hasText: "Tomatenmark" }).textContent()), "kommendes Angebot mit „ab …“");
   ok(/Ohne Angebot:.*Birnen/.test(await page.locator("#app").textContent()), "Birnen ohne Angebot");
   await page.screenshot({ path: "/tmp/pr-2.png", fullPage: true });
@@ -205,6 +212,12 @@ try {
   ok(/19,90 €/.test(await page.locator(".spend").textContent()), "Ausgaben im Monat: " + await page.locator(".spend").textContent());
   ok((await page.locator(".card-s", { hasText: "Pro Woche" }).locator(".vb").count()) === 12, "12 Wochen-Balken");
   await page.screenshot({ path: "/tmp/pr-5.png" });
+  // Knopf „Neue Angebote suchen“
+  await page.click("[data-st=close], .backbtn"); await page.waitForTimeout(200);
+  await page.click("[data-act=prices]"); await page.waitForSelector("#pr_refresh");
+  await page.click("#pr_refresh");
+  await page.waitForFunction(() => /neuesten Stand|konnten nicht/.test(document.getElementById("toast").textContent), null, { timeout: 8000 });
+  ok(/neuesten Stand/.test(await page.textContent("#toast")) && mgCalls >= 4, "Neue Angebote gesucht (" + mgCalls + " Anfragen): " + await page.textContent("#toast"));
 } catch (e) { console.log("FEHLER:", e.message); process.exitCode = 1; await page.screenshot({ path: "/tmp/kz-fehler.png", fullPage: true }); }
 ok(!errors.length, "keine Fehler im Browser" + (errors.length ? ": " + errors.join(" / ") : ""));
 await browser.close(); server.close();

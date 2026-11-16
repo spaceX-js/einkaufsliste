@@ -626,3 +626,33 @@ test("Preisalarm-Nachricht", () => {
   assert.match(m.body, /^Lidl: Kerrygold Butter \(250 g\) für 1,99 € statt 2,99 €, bis /);
   assert.match(m.body, /\nPenny: Butter für 2,19 €, ab /);
 });
+
+test("Angebote: Grundpreis selbst berechnen und „Neue Angebote suchen“ in Portionen", async () => {
+  const noRef = normalizeOffer(mgOffer(1, "Lidl", "Tomatenmark", 0.59, { unit: "g", vol: 200 }), ["Lidl"]);
+  assert.deepEqual([noRef.refPrice, noRef.refUnit, noRef.amount], [295, "kg", "200 g"]);
+  const multi = normalizeOffer({ ...mgOffer(2, "Lidl", "Cola", 3.6, { unit: "l", vol: 0.33 }), quantity: 6 }, ["Lidl"]);
+  assert.deepEqual([multi.refPrice, multi.refUnit], [182, "l"]);
+  assert.equal(normalizeOffer(mgOffer(3, "Lidl", "Gurke", 0.75, { unit: "Stk", vol: 1 }), ["Lidl"]).refUnit, "Stk");
+
+  const env = await setup(); const ck = await login(env);
+  await post(env, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Lidl"] }] });
+  for (let i = 0; i < 11; i++) await post(env, ck, "/api/item", { id: "a" + i, name: "Artikel" + i, store: "supermarkt", done: false, addedAt: new Date().toISOString() });
+  assert.equal((await post(env, ck, "/api/offers/refresh", { start: true })).status, 400);   // noch keine Geschäfte
+  await post(env, ck, "/api/offers/config", { zip: "50354", shops: ["Lidl"] });
+  let n = 0;
+  env.OFFERS_FETCH = async url => { n++; if (String(url) === "https://www.marktguru.de/") return new Response('<script type="application/json">{"config":{"apiKey":"A","clientKey":"C"}}</script>');
+    return new Response(JSON.stringify({ results: [] })); };
+  let r = await (await post(env, ck, "/api/offers/refresh", { start: true, again: true })).json();
+  assert.deepEqual(r, { ok: true, done: 8, total: 11, remaining: 3 });
+  r = await (await post(env, ck, "/api/offers/refresh", {})).json();
+  assert.deepEqual(r, { ok: true, done: 11, total: 11, remaining: 0 });
+  r = await (await post(env, ck, "/api/offers/refresh", {})).json();
+  assert.equal(r.remaining, 0);
+  // nochmal von vorn: wieder alle 11
+  r = await (await post(env, ck, "/api/offers/refresh", { start: true, again: true })).json();
+  assert.equal(r.done, 8);
+  // marktguru kaputt → klare Fehlermeldung statt Endlosschleife
+  env.OFFERS_FETCH = async () => new Response("kaputt", { status: 500 });
+  const bad = await post(env, ck, "/api/offers/refresh", { start: true, again: true });
+  assert.equal(bad.status, 502);
+});
