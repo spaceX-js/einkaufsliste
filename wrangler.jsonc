@@ -21,5 +21,22 @@
   // alle 5 Minuten: „… war einkaufen“-Nachricht verschicken, wenn jemand fertig ist
   "triggers": { "crons": ["*/5 * * * *"] },
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // Test-App für Feature-Branches: eigener Worker, eigene Datenbank, eigene Adresse
+  // (einkaufsliste-test.<subdomain>.workers.dev). Deploy: npx wrangler deploy --env test
+  "env": {
+    "test": {
+      "name": "einkaufsliste-test",
+      "vars": { "STAGE": "test" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "einkaufsliste-test-db",
+          "database_id": "e8ec8aac-4b13-46db-8ad5-4594b96ea800"
+        }
+      ],
+      "triggers": { "crons": ["*/5 * * * *"] }
+    }
+  }
 }

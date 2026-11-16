@@ -67,6 +67,7 @@ async function api(request, env, settings, url, ctx) {
       rev,
       stores: parseStores(settings.stores),
       people: people(settings),
+      stage: env.STAGE || "",
       items: results.map(r => ({ id: r.id, name: r.name, store: r.store, note: r.note || "", done: !!r.done, addedAt: r.added_at || null, doneAt: r.done_at || null,
         cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shops: splitShops(r.shop) }))
     });

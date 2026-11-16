@@ -63,6 +63,7 @@ async function refresh(force){
     if(d.same){ S.rev=d.rev; return; }
     S.rev=d.rev; S.items=d.items||[]; S.stores=(d.stores&&d.stores.length)?d.stores:null; S.loaded=true;
     if(Array.isArray(d.people)&&d.people.length) S.people=d.people;
+    if(d.stage==="test" && !document.getElementById("testbadge")){ const b=document.createElement("div"); b.id="testbadge"; b.textContent="TEST-VERSION · eigene Testdaten"; document.body.prepend(b); }
     fixCur(); saveLocal();
     if(!$("modal").innerHTML) render(); else renderHead(true);
   }catch(e){ if(!S.loaded){ S.loaded=true; render(); } }
