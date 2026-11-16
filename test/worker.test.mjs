@@ -586,6 +586,10 @@ test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preisalarm, Ladenvergleich"
   const out = await refreshOffers(env, msg => { sent.push(msg); });
   // geprüft: Tomatenmark, Cola (offen im Supermarkt) und Kaffee (Alarm) – nicht Zahnpasta (dm nicht in der Nähe)
   assert.deepEqual(out.map(o => o.id).sort(), ["cola", "kaffee", "tm"]);
+  // oft Gekauftes, das gerade nicht auf der Liste steht, wird auch geprüft
+  await post(env, ck, "/api/item", { id: "oft", name: "Kaffee", store: "supermarkt", done: true, doneAt: new Date().toISOString(), buyCount: 3 });
+  await post(env, ck, "/api/item", { id: "selten", name: "Kaffee", store: "supermarkt", done: true, doneAt: new Date().toISOString(), buyCount: 1 });
+  assert.deepEqual((await refreshOffers(env, null)).map(o => o.id), ["oft"]);
   assert.ok(calls.some(c => c.includes("q=Cola+Dosen")));
   assert.ok(calls.some(c => c.includes("q=Tomatenmark") && c.includes("zipCode=50858")));
   const st = await (await get(env, ck, "/api/offers")).json();

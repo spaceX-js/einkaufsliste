@@ -210,9 +210,9 @@ function render(){
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
     const hm=histMode(S.cur), lim=S.showAllHist?hist.length:(hm==="group"?hist.length:24);
-    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
+    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+(window.Prices&&window.Prices.hasOffer(i.id)?'<small class="ofd" title="Gerade im Angebot">%</small>':'')+'</button>';
     h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",hm,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
-    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste</div>';
+    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste'+(hist.some(i=>window.Prices&&window.Prices.hasOffer(i.id))?' · <span class="ofd" style="margin:0">%</span> = gerade im Angebot':'')+'</div>';
     if(hm==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
     else h+='<div class="hist">'+hist.slice(0,lim).map(chip).join("")+'</div>';
     if(hist.length>lim) h+='<button class="linkbtn" data-act="allHist">Alle '+hist.length+' anzeigen</button>';
@@ -399,6 +399,8 @@ async function loadStats(){
   try{
     const rc=await api("GET","/api/receipts").catch(()=>({receipts:[]}));
     st.receipts=(rc.receipts||[]).map(r=>{ const m=String(r.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]), total:r.total, shop:r.shop, store:r.store||""}:null; }).filter(Boolean);
+    const rl=await api("GET","/api/receipt-lines").catch(()=>({lines:[]}));
+    st.lines=(rl.lines||[]).map(l=>{ const m=String(l.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?Object.assign({},l,{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5])}):null; }).filter(Boolean);
     const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
   catch(e){ st.err=e.message||"Statistik konnte nicht geladen werden."; }
   st.loading=false; renderStats();
@@ -438,6 +440,27 @@ function spendHtml(p, prevP, prevName, inStore){
   }
   return h+'</div>';
 }
+// Was laut Kassenzetteln wirklich gekauft wurde: je Artikel Anzahl, Menge und Betrag
+function boughtHtml(p, inStore){
+  const st=S.st, lines=(st.lines||[]).filter(l=>inStore(l) && l.at>=p.from && l.at<p.to);
+  if(!(st.lines||[]).length) return "";
+  if(!lines.length) return '<div class="card-s"><div class="ch"><b>Laut Kassenzettel gekauft</b></div><div class="small">In diesem Zeitraum gibt es keinen Kassenzettel'+(st.store?' für '+esc(storeName(st.store)):'')+'.</div></div>';
+  const by=new Map();
+  lines.forEach(l=>{ const it=l.itemId && S.items.find(i=>i.id===l.itemId); const key=it?"i:"+it.id:"r:"+l.raw.toLowerCase();
+    const e=by.get(key)||{name:it?it.name:l.raw, raw:!it, n:0, kg:0, stk:0, sum:0, shops:new Set()};
+    e.n++; e.sum+=l.price; if(l.unit==="kg") e.kg+=l.qty; else e.stk+=l.qty; e.shops.add(l.shop); by.set(key,e); });
+  const list=[...by.values()].sort((a,b)=>b.sum-a.sum || b.n-a.n);
+  const sort=st.boughtSort||"sum";
+  if(sort==="n") list.sort((a,b)=>b.n-a.n || b.stk-a.stk || b.kg-a.kg || b.sum-a.sum);
+  else if(sort==="name") list.sort((a,b)=>a.name.localeCompare(b.name,"de"));
+  const shown=st.boughtAll?list:list.slice(0,12), total=lines.reduce((a,l)=>a+l.price,0);
+  const amt=e=>[e.stk?(Math.round(e.stk*10)/10).toLocaleString("de-DE")+" Stück":"", e.kg?(Math.round(e.kg*1000)/1000).toLocaleString("de-DE")+" kg":""].filter(Boolean).join(" + ");
+  return '<div class="card-s"><div class="ch"><b>Laut Kassenzettel gekauft</b><span>'+list.length+' Artikel · '+euro(total)+'</span></div>'+
+    '<div class="mini-seg bseg"><button class="'+(sort==="sum"?'on':'')+'" data-st="bsort" data-k="sum">Betrag</button><button class="'+(sort==="n"?'on':'')+'" data-st="bsort" data-k="n">Menge</button><button class="'+(sort==="name"?'on':'')+'" data-st="bsort" data-k="name">A–Z</button></div>'+
+    '<div class="blist">'+shown.map(e=>'<div class="bl"><span>'+(e.raw?'<i>'+esc(e.name)+'</i>':esc(e.name))+'<small>'+esc(amt(e))+(st.store?'':' · '+[...e.shops].map(esc).join(", "))+'</small></span><b>'+euro(e.sum)+'</b></div>').join("")+'</div>'+
+    (list.length>12?'<button class="linkbtn" data-st="ball">'+(st.boughtAll?'Weniger anzeigen':'Alle '+list.length+' anzeigen')+'</button>':'')+
+    (list.some(e=>e.raw)?'<div class="small" style="margin-top:6px"><i>Kursiv</i> = Bon-Text ohne zugeordneten Artikel.</div>':'')+'</div>';
+}
 function renderStats(){
   const st=S.st, h=$("head"), app=$("app");
   const ranges=[["week","Woche"],["month","Monat"],["year","Jahr"]];
@@ -456,7 +479,7 @@ function renderStats(){
   const days = new Set(rows.map(r=>dayKey(r.at))).size;
   const items = new Map(); rows.forEach(r=>{ const e=items.get(r.id)||{id:r.id,name:r.name,store:r.store,n:0}; e.n++; items.set(r.id,e); });
   const cur = id => S.items.find(i=>i.id===id);
-  let html=spendHtml(p, prevP, prevName, inStore);
+  let html=spendHtml(p, prevP, prevName, inStore)+boughtHtml(p, inStore);
   // Kennzahlen
   const diff = rows.length-prevN;
   html+='<div class="tiles">'+
@@ -508,6 +531,8 @@ document.addEventListener("click",e=>{
   else if(k==="next"){ if(st.offset<0) st.offset++; st.tip=""; renderStats(); }
   else if(k==="store"){ st.store=b.dataset.k; st.tip=""; renderStats(); }
   else if(k==="topall"){ st.topAll=!st.topAll; renderStats(); }
+  else if(k==="ball"){ st.boughtAll=!st.boughtAll; renderStats(); }
+  else if(k==="bsort"){ st.boughtSort=b.dataset.k; renderStats(); }
   else if(k==="reload") loadStats();
   else if(k==="sptip"){ const t=$("sptip"); if(t) t.textContent=b.dataset.k; document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
   else if(k==="tip"){ st.tip=b.dataset.k; const t=$("sttip"); if(t) t.textContent=st.tip;

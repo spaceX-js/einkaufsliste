@@ -156,9 +156,9 @@ export async function refreshOffers(env, deliverAlarm, nowMs = Date.now(), opts 
   const since = new Date(nowMs - RECHECK_MS).toISOString();
   const { results } = await env.DB.prepare(`SELECT i.id, i.name, i.store, w.query, w.checked_at, w.alarm, w.alarm_max, w.alarm_sent
     FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
-    WHERE ((i.done = 0 AND i.store IN (${near.map(() => "?").join(",") || "''"})) OR w.alarm = 1)
+    WHERE (${WATCHED(near)})
       AND (w.checked_at IS NULL OR w.checked_at < ?)
-    ORDER BY w.checked_at IS NOT NULL, w.checked_at LIMIT ?`).bind(...near, opts.since || since, opts.limit || PER_RUN).all();
+    ORDER BY w.checked_at IS NOT NULL, i.done, i.buy_count DESC, w.checked_at LIMIT ?`).bind(...near, opts.since || since, opts.limit || PER_RUN).all();
   const out = [];
   for (const it of results) {
     const query = it.query || queryFor(it.name);
@@ -179,12 +179,15 @@ export async function refreshOffers(env, deliverAlarm, nowMs = Date.now(), opts 
   return out;
 }
 
-// Artikel, für die Angebote gesucht werden: offen in Läden mit Geschäften in der Nähe, oder mit Preisalarm
+// Artikel, für die Angebote gesucht werden (Läden mit Geschäften in der Nähe): alles Offene, alles schon mal Gekaufte
+// (mindestens zweimal abgehakt oder auf einem Kassenzettel) – und alles mit Preisalarm
+const WATCHED = near => `(i.store IN (${near.map(() => "?").join(",") || "''"}) AND (i.done = 0 OR i.buy_count >= 2
+    OR EXISTS (SELECT 1 FROM receipt_lines l WHERE l.item_id = i.id))) OR w.alarm = 1`;
 export async function watchedCount(env, config, stores, sinceIso) {
   const near = stores.filter(s => (s.labels || []).some(l => config.shops.includes(l))).map(s => s.id);
   const r = await env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN w.checked_at IS NULL OR w.checked_at < ? THEN 1 ELSE 0 END) AS due
     FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
-    WHERE (i.done = 0 AND i.store IN (${near.map(() => "?").join(",") || "''"})) OR w.alarm = 1`).bind(sinceIso, ...near).first();
+    WHERE ${WATCHED(near)}`).bind(sinceIso, ...near).first();
   return { total: r.total || 0, due: r.due || 0 };
 }
 // Preisalarm: gültiges Angebot (heute oder demnächst) unter dem Wunschpreis, noch nicht gemeldet

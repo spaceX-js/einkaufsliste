@@ -93,6 +93,13 @@ export async function receiptApi(request, env, settings, url, h) {
     return h.json({ receipts: results });
   }
 
+  // Alle Bon-Zeilen (für die Statistik „laut Kassenzettel gekauft“)
+  if (path === "/api/receipt-lines" && method === "GET") {
+    const { results } = await env.DB.prepare(`SELECT r.at, r.shop, r.store, l.raw, l.item_id, l.qty, l.unit, l.price
+      FROM receipt_lines l JOIN receipts r ON r.id = l.receipt_id WHERE l.kind = 'item' ORDER BY r.at DESC LIMIT 20000`).all();
+    return h.json({ lines: results.map(x => ({ at: x.at, shop: x.shop, store: x.store, raw: x.raw, itemId: x.item_id || "", qty: x.qty, unit: x.unit, price: x.price })) });
+  }
+
   if (path === "/api/receipt" && method === "GET") {
     const id = url.searchParams.get("id") || "";
     if (!ID_RE.test(id)) return h.json({ error: "Ungültige Anfrage." }, 400);

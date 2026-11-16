@@ -160,6 +160,7 @@ try {
   io.run("tm", "o2", "Lidl", "Tomatenmark", "Baresa", 59, 89, 295, "kg", "200 g", 0, d(-1), d(4), "x");
   io.run("tm", "o3", "Lidl", "Bio Tomatenmark", "", 79, null, 395, "kg", "200 g", 1, d(-1), d(4), "x");
   io.run("tm", "o4", "Penny", "Tomatenmark", "", 69, null, null, "", "", 0, d(2), d(8), "x");
+  io.run("skyr", "o6", "Penny", "Skyr", "", 99, 149, 198, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("tm", "o5", "Lidl", "Tomatenmark Großpackung", "", 129, null, 258, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
   db.prepare("INSERT INTO offer_watch (item_id,query,checked_at) VALUES ('pet','',?),('tm','',?),('birne','',?)").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
@@ -171,7 +172,8 @@ try {
   await page.screenshot({ path: "/tmp/pr-1.png" });
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
-  ok((await page.locator(".ofcard").count()) === 2, "2 Sachen mit Angeboten");
+  ok((await page.locator(".ofcard").count()) === 3, "3 Kärtchen mit Angeboten");
+  ok((await page.locator(".sec", { hasText: "Schon mal gekauft · 1" }).count()) === 1 && /2× gekauft/.test(await page.locator(".ofcard", { hasText: "Skyr" }).textContent()), "Abschnitt „Schon mal gekauft“ mit Skyr");
   const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
   const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
   ok(/Großpackung/.test(tmTitles[0]) && /Baresa/.test(tmTitles[1]) && /Bio Tomatenmark/.test(tmTitles[2]), "Reihenfolge nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));
@@ -211,6 +213,11 @@ try {
   await page.click("[data-st=range][data-k=month]"); await page.waitForTimeout(200);
   ok(/19,90 €/.test(await page.locator(".spend").textContent()), "Ausgaben im Monat: " + await page.locator(".spend").textContent());
   ok((await page.locator(".card-s", { hasText: "Pro Woche" }).locator(".vb").count()) === 12, "12 Wochen-Balken");
+  const bought = page.locator(".card-s", { hasText: "Laut Kassenzettel gekauft" });
+  const bl = await bought.locator(".bl").allTextContents();
+  ok(bl.length === 5 && /^Haferdrink.*7 Stück.*12,53 €$/.test(bl[0]) && bl.some(t => /^Petersilie.*1,39 €$/.test(t)) && !bl.some(t => /SKYR/.test(t)), "laut Kassenzettel gekauft: " + bl.join(" | "));
+  await bought.locator("[data-st=bsort][data-k=name]").click();
+  ok(/^Birnen/.test((await page.locator(".card-s", { hasText: "Laut Kassenzettel gekauft" }).locator(".bl").first().textContent())), "Sortierung A–Z");
   await page.screenshot({ path: "/tmp/pr-5.png" });
   // Knopf „Neue Angebote suchen“
   await page.click("[data-st=close], .backbtn"); await page.waitForTimeout(200);
