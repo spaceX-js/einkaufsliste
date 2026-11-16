@@ -147,6 +147,64 @@ try {
   await page.waitForSelector(".prow", { timeout: 3000 });
   ok(/Penny/.test(await page.locator(".prow").first().textContent()) && /1,39 €/.test(await page.locator(".prow").first().textContent()), "Preis im Bearbeiten-Dialog: " + await page.locator(".prow").first().textContent());
   await page.screenshot({ path: "/tmp/kz-7.png" });
+
+  /* ---------- Angebote, Ladenvergleich, Preisverlauf, Preisalarm, Ausgaben ---------- */
+  const d = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  db.prepare("INSERT INTO settings (key,value) VALUES ('offers_config',?)").run(JSON.stringify({ zip: "50354", shops: ["Lidl", "Penny"], zipByShop: {} }));
+  db.prepare("UPDATE items SET done=0, added_at=? WHERE id IN ('birne','pet','tm')").run(new Date().toISOString());
+  db.prepare("UPDATE settings SET value = CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='rev'").run();
+  const io = db.prepare("INSERT INTO offers (item_id,offer_id,shop,title,brand,price,old_price,ref_price,ref_unit,amount,bio,valid_from,valid_to,fetched_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+  io.run("pet", "o1", "Lidl", "Petersilie glatt", "", 89, 129, null, "", "1 Bund", 0, d(-1), d(4), "x");
+  io.run("tm", "o2", "Lidl", "Tomatenmark", "Baresa", 59, 89, 295, "kg", "200 g", 0, d(-1), d(4), "x");
+  io.run("tm", "o3", "Lidl", "Bio Tomatenmark", "", 79, null, 395, "kg", "200 g", 1, d(-1), d(4), "x");
+  io.run("tm", "o4", "Penny", "Tomatenmark", "", 69, null, null, "", "", 0, d(2), d(8), "x");
+  io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
+  db.prepare("INSERT INTO offer_watch (item_id,query,checked_at) VALUES ('pet','',?),('tm','',?),('birne','',?)").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(4500);   // Liste aktualisiert sich
+  await page.evaluate(() => window.Prices.load(true)); await page.waitForTimeout(500);
+  const rowTm = page.locator(".row", { hasText: "Tomatenmark" });
+  ok(/Angebot: Lidl 0,79 € · Bio/.test(await rowTm.textContent()), "Hinweis in der Liste (Bio bevorzugt): " + (await rowTm.locator(".d").textContent()));
+  await page.screenshot({ path: "/tmp/pr-1.png" });
+  await page.click("[data-act=prices]");
+  await page.waitForSelector(".ofcard");
+  ok((await page.locator(".ofcard").count()) === 2, "2 Sachen mit Angeboten");
+  ok(/ab Do|ab Mo|ab Di|ab Mi|ab Fr|ab Sa|ab So/.test(await page.locator(".ofcard", { hasText: "Tomatenmark" }).textContent()), "kommendes Angebot mit „ab …“");
+  ok(/Ohne Angebot:.*Birnen/.test(await page.locator("#app").textContent()), "Birnen ohne Angebot");
+  await page.screenshot({ path: "/tmp/pr-2.png", fullPage: true });
+  await page.click("[data-pr=tab][data-k=compare]");
+  await page.waitForSelector(".cmprow");
+  const cmp = await page.locator(".cmprow").allTextContents();
+  // Lidl: Petersilie 0,89 (Angebot) + Tomatenmark 0,79 (Bio) + Birnen geschätzt 0,55 → ~2,23; Penny: Birnen 0,55 (Bon, kg) + Petersilie 1,39 (Bon) + TM geschätzt 0,79 → ~2,73
+  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~2,23 €/.test(cmp[0]) && /~2,73 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
+  await page.click(".cmprow >> nth=0");
+  ok((await page.locator(".cmpi").count()) === 3 && (await page.locator(".cmpi.est").count()) === 1, "Details mit geschätztem Preis");
+  ok(/Günstigster Mix/.test(await page.locator("#app").textContent()), "günstigster Mix");
+  await page.screenshot({ path: "/tmp/pr-3.png", fullPage: true });
+  await page.click("[data-pr=tab][data-k=offers]");
+  await page.click(".ofcard .ofh >> text=Petersilie");
+  await page.waitForSelector("#pv_q");
+  ok((await page.locator("#e_prices .ofr").count()) === 1 && (await page.locator("#e_prices .prow").count()) === 1, "Bearbeiten: Angebot und bezahlter Preis");
+  await page.check("#pv_al"); await page.waitForTimeout(300);
+  await page.fill("#pv_max", "0,99"); await page.press("#pv_max", "Tab"); await page.waitForTimeout(300);
+  const wr = db.prepare("SELECT alarm, alarm_max, alarm_person FROM offer_watch WHERE item_id='pet'").get();
+  ok(wr.alarm === 1 && wr.alarm_max === 99 && wr.alarm_person === "Jonas", "Preisalarm gespeichert");
+  await page.click("#pv_open");
+  await page.waitForSelector(".pvsvg");
+  ok((await page.locator(".pvsvg circle").count()) === 1 && (await page.locator(".pvsvg line[stroke-width='4']").count()) === 2, "Preisverlauf: 1 Bon, 2 Angebote");
+  ok((await page.locator(".pvleg span").count()) === 2, "Legende mit 2 Geschäften");
+  await page.screenshot({ path: "/tmp/pr-4.png" });
+  await page.click("#pv_x");
+  ok((await page.locator(".sec", { hasText: "Preisalarm" }).count()) === 1, "Preisalarm-Abschnitt");
+  await page.click("[data-pr=close]");
+  // Ausgaben in der Statistik
+  await page.click("[data-act=stats]");
+  await page.waitForSelector(".spend");
+  ok(/0,00 €/.test(await page.locator(".spend").textContent()) && /Schnitt 20 €/.test(await page.textContent("#sptip")), "Ausgaben: diese Woche nichts, Schnitt " + await page.textContent("#sptip"));
+  await page.click("[data-st=range][data-k=month]"); await page.waitForTimeout(200);
+  ok(/19,90 €/.test(await page.locator(".spend").textContent()), "Ausgaben im Monat: " + await page.locator(".spend").textContent());
+  ok((await page.locator(".card-s", { hasText: "Pro Woche" }).locator(".vb").count()) === 12, "12 Wochen-Balken");
+  await page.screenshot({ path: "/tmp/pr-5.png" });
 } catch (e) { console.log("FEHLER:", e.message); process.exitCode = 1; await page.screenshot({ path: "/tmp/kz-fehler.png", fullPage: true }); }
 ok(!errors.length, "keine Fehler im Browser" + (errors.length ? ": " + errors.join(" / ") : ""));
 await browser.close(); server.close();

@@ -3,7 +3,8 @@
 // Das Passwort liegt nur als Hash in der Datenbank (Tabelle settings).
 // Benachrichtigungen: Web Push (src/push.js); der Schlüssel dafür wird beim ersten Bedarf erzeugt und in settings gespeichert.
 import { generateVapid, sendPush } from "./push.js";
-import { runOffersProbe } from "./offers.js";
+import { runOffersProbe, refreshOffers } from "./offers.js";
+import { offersApi } from "./offers-api.js";
 import { receiptApi } from "./receipts-api.js";
 
 const COOKIE = "ek_session";
@@ -51,6 +52,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(announceShopping(env));
     ctx.waitUntil(runOffersProbe(env).catch(() => {}));   // Testlauf Angebote (nur wenn angefordert)
+    ctx.waitUntil(refreshOffers(env, msg => deliverAll(env, msg)).catch(() => {}));   // Angebote prüfen, Preisalarm
   }
 };
 
@@ -118,7 +120,8 @@ async function api(request, env, settings, url, ctx) {
   if (path === "/api/item/delete" && method === "POST") {
     const b = await readJson(request);
     if (!b || typeof b.id !== "string" || !ID_RE.test(b.id)) return json({ error: "Ungültige Anfrage." }, 400);
-    const [, bump] = await env.DB.batch([env.DB.prepare("DELETE FROM items WHERE id = ?").bind(b.id), bumpRev(env)]);
+    const [, , , bump] = await env.DB.batch([env.DB.prepare("DELETE FROM items WHERE id = ?").bind(b.id),
+      env.DB.prepare("DELETE FROM offer_watch WHERE item_id = ?").bind(b.id), env.DB.prepare("DELETE FROM offers WHERE item_id = ?").bind(b.id), bumpRev(env)]);
     return json({ ok: true, rev: revOf(bump) });
   }
 
@@ -168,9 +171,12 @@ async function api(request, env, settings, url, ctx) {
     return json({ ok: true }, 200, { "Set-Cookie": cookie(await sessionToken(secret)) });
   }
 
-  // Kassenzettel (src/receipts-api.js)
-  const rr = await receiptApi(request, env, settings, url, { json, readJson, bumpRev, revOf, people });
+  // Kassenzettel (src/receipts-api.js), Angebote und Preisalarm (src/offers-api.js)
+  const helpers = { json, readJson, bumpRev, revOf, people, deliverAll: msg => deliverAll(env, msg) };
+  const rr = await receiptApi(request, env, settings, url, helpers);
   if (rr) return rr;
+  const ro = await offersApi(request, env, settings, url, helpers);
+  if (ro) return ro;
 
   return json({ error: "Nicht gefunden." }, 404);
 }
@@ -241,6 +247,13 @@ async function deliver(env, subs, message, origin) {
     if (status === 404 || status === 410) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?").bind(sub.endpoint).run();
     return status;
   }));
+}
+// An alle angemeldeten Handys (z. B. Preisalarm)
+export async function deliverAll(env, message) {
+  const subs = (await env.DB.prepare("SELECT endpoint, p256dh, auth, person FROM push_subs").all()).results;
+  if (!subs.length) return [];
+  const s = await getSettings(env);
+  return deliver(env, subs, message, s.origin || "https://einkaufsliste.workers.dev");
 }
 // Nach dem Eintragen kurz warten: Kommt in der Zeit noch etwas dazu, schickt erst der letzte Eintrag eine Sammel-Nachricht.
 export async function notifyAdded(env, person, addedAt, origin) {

@@ -87,7 +87,7 @@ export async function receiptApi(request, env, settings, url, h) {
   }
 
   if (path === "/api/receipts" && method === "GET") {
-    const { results } = await env.DB.prepare(`SELECT r.id, r.shop, r.at, r.total, r.source, r.person,
+    const { results } = await env.DB.prepare(`SELECT r.id, r.shop, r.store, r.at, r.total, r.source, r.person,
         (SELECT COUNT(*) FROM receipt_lines l WHERE l.receipt_id = r.id AND l.kind = 'item') AS n
       FROM receipts r ORDER BY r.at DESC LIMIT 300`).all();
     return h.json({ receipts: results });
@@ -115,8 +115,12 @@ export async function receiptApi(request, env, settings, url, h) {
     const id = url.searchParams.get("id") || "";
     if (!ID_RE.test(id)) return h.json({ error: "Ungültige Anfrage." }, 400);
     const { results } = await env.DB.prepare(`SELECT r.shop, r.at, l.raw, l.qty, l.unit, l.unit_price, l.price, l.discount
-      FROM receipt_lines l JOIN receipts r ON r.id = l.receipt_id WHERE l.item_id = ? ORDER BY r.at DESC LIMIT 40`).bind(id).all();
-    return h.json({ prices: results.map(x => ({ shop: x.shop, at: x.at, raw: x.raw, qty: x.qty, unit: x.unit, unitPrice: x.unit_price, price: x.price, discount: x.discount })) });
+      FROM receipt_lines l JOIN receipts r ON r.id = l.receipt_id WHERE l.item_id = ? ORDER BY r.at DESC LIMIT 100`).bind(id).all();
+    // dazu die Prospekt-Angebote (auch vergangene) für den Preisverlauf
+    const { results: offers } = await env.DB.prepare(`SELECT shop, title, brand, price, old_price, ref_price, ref_unit, amount, bio, valid_from, valid_to
+      FROM offers WHERE item_id = ? ORDER BY valid_from DESC LIMIT 60`).bind(id).all();
+    return h.json({ prices: results.map(x => ({ shop: x.shop, at: x.at, raw: x.raw, qty: x.qty, unit: x.unit, unitPrice: x.unit_price, price: x.price, discount: x.discount })),
+      offers: offers.map(o => ({ shop: o.shop, title: o.title, brand: o.brand, price: o.price, oldPrice: o.old_price, refPrice: o.ref_price, refUnit: o.ref_unit, amount: o.amount, bio: !!o.bio, from: o.valid_from, to: o.valid_to })) });
   }
 
   return null;

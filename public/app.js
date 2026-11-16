@@ -66,7 +66,7 @@ async function refresh(force){
     if(d.stage==="test" && !document.getElementById("testbadge")){ const b=document.createElement("div"); b.id="testbadge"; b.textContent="TEST-VERSION · eigene Testdaten"; document.body.prepend(b); }
     fixCur(); saveLocal();
     if($("modal").innerHTML){ if(S.view==="list") renderHead(true); }
-    else if(S.view!=="receipts") render();
+    else if(S.view!=="receipts" && S.view!=="prices") render();
   }catch(e){ if(!S.loaded){ S.loaded=true; render(); } }
 }
 // Eine Änderung zum Server schicken. Bis sie durch ist, werden keine Server-Stände übernommen,
@@ -149,6 +149,7 @@ function storeBtns(){
     return '<button class="store'+(s.id===S.cur?' on':'')+'" data-store="'+esc(s.id)+'">'+esc(s.name)+'<span class="cnt">'+n+'</span></button>'; }).join("");
 }
 const GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>';
+const TAG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg>';
 const RECEIPT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>';
 const CHART='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>';
 function renderHead(light){
@@ -161,7 +162,7 @@ function renderHead(light){
     $("net").textContent = S.online ? "" : "offline";
     renderSugg(); return;
   }
-  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
+  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="prices" aria-label="Angebote und Preise">'+TAG+'</button><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
     '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
     '<div class="sugg" id="sugg"></div>';
@@ -183,6 +184,7 @@ function renderSugg(){
 function render(){
   if(S.view==="stats"){ renderStats(); return; }
   if(S.view==="receipts"){ window.Receipts.render(); return; }
+  if(S.view==="prices"){ window.Prices.render(); return; }
   renderHead(!!$("storebar"));
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
@@ -221,6 +223,7 @@ function render(){
 }
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
+  const of=window.Prices && window.Prices.badge(i.id); if(of) d.push(of);
   return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
 }
 
@@ -254,7 +257,7 @@ function openEdit(id){
     m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
   bindSh();
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
-  if(window.Receipts) window.Receipts.prices(id, $("e_prices"));
+  if(window.Prices) window.Prices.editSection(id, $("e_prices"));
   $("e_x").onclick=closeModal;
   $("e_del").onclick=()=>{ $("modal").innerHTML=""; removeItem(id); };
   if($("e_drop")) $("e_drop").onclick=()=>{ $("modal").innerHTML=""; dropItem(id); };
@@ -393,7 +396,10 @@ function period(range, offset){
 }
 async function loadStats(){
   const st=S.st; st.loading=true; st.err=""; renderStats();
-  try{ const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
+  try{
+    const rc=await api("GET","/api/receipts").catch(()=>({receipts:[]}));
+    st.receipts=(rc.receipts||[]).map(r=>{ const m=String(r.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]), total:r.total, shop:r.shop, store:r.store||""}:null; }).filter(Boolean);
+    const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
   catch(e){ st.err=e.message||"Statistik konnte nicht geladen werden."; }
   st.loading=false; renderStats();
 }
@@ -403,6 +409,34 @@ function barsHtml(list, max, label){
   // waagerechte Balken: Name, Balken, Zahl
   return '<div class="hbars">'+list.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+(x.sub?'<small>'+esc(x.sub)+'</small>':'')+'</span><b>'+x.n+'</b></div>'+
     '<div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/max*100))+'%"></span></div></div>').join("")+'</div>';
+}
+// Echte Ausgaben aus den Kassenzetteln: Summe im Zeitraum, Wochen-Verlauf, nach Geschäft
+const euro = c => (c/100).toLocaleString("de-DE",{minimumFractionDigits:2, maximumFractionDigits:2})+" €";
+const euro0 = c => Math.round(c/100).toLocaleString("de-DE")+" €";
+function spendHtml(p, prevP, prevName, inStore){
+  const st=S.st, all=(st.receipts||[]).filter(inStore);
+  if(!all.length) return '<div class="card-s"><div class="ch"><b>Ausgaben</b></div><div class="small">Sobald ihr Kassenzettel hochladet (Bon-Symbol oben in der Liste), steht hier, was ihr pro Woche wirklich ausgebt.</div></div>';
+  const inP=all.filter(r=>r.at>=p.from && r.at<p.to), sum=inP.reduce((a,r)=>a+r.total,0);
+  const prev=all.filter(r=>r.at>=prevP.from && r.at<prevP.to).reduce((a,r)=>a+r.total,0);
+  const d=sum-prev;
+  let h='<div class="card-s"><div class="ch"><b>Ausgaben</b><span>'+inP.length+' Kassenzettel</span></div>'+
+    '<div class="spend"><b>'+euro(sum)+'</b>'+(prev||sum?'<span>'+(d===0?'wie':(d>0?'+':'−')+euro(Math.abs(d))+' ggü.')+' '+prevName+'</span>':'')+'</div>';
+  // letzte 12 Wochen (bis zur Woche des gewählten Zeitraums)
+  const end=startOfWeek(p.to>new Date()?new Date():new Date(p.to-1)); const weeks=[];
+  for(let i=11;i>=0;i--){ const f=new Date(end); f.setDate(f.getDate()-7*i); const t=new Date(f); t.setDate(t.getDate()+7); weeks.push({f,t}); }
+  const ws=weeks.map(w=>all.filter(r=>r.at>=w.f && r.at<w.t).reduce((a,r)=>a+r.total,0)), max=Math.max(1,...ws);
+  const used=ws.filter(x=>x>0); const avg=used.length?Math.round(used.reduce((a,b)=>a+b,0)/used.length):0;
+  h+='<div class="ch" style="margin-top:12px"><b>Pro Woche</b><span id="sptip">'+(avg?'Schnitt '+euro0(avg)+' (Wochen mit Bon)':'')+'</span></div>'+
+    '<div class="vbars r-week"><span class="ymax">'+euro0(max)+'</span>'+weeks.map((w,i)=>{ const l=new Date(w.t); l.setDate(l.getDate()-1);
+      const tip='KW '+isoWeek(w.f)+' ('+w.f.getDate()+'.'+(w.f.getMonth()+1)+'.–'+l.getDate()+'.'+(l.getMonth()+1)+'.): '+euro(ws[i]);
+      return '<button class="vb" data-st="sptip" data-k="'+esc(tip)+'" title="'+esc(tip)+'"><span class="vbar'+(ws[i]?'':' zero')+'" style="height:'+(ws[i]?Math.max(4,ws[i]/max*100):0)+'%"></span><span class="vl">'+(i%2?'':isoWeek(w.f))+'</span></button>'; }).join("")+'</div>'+
+    '<div class="small" style="margin-top:2px">Zahlen unter den Balken = Kalenderwoche</div>';
+  if(inP.length){
+    const by=new Map(); inP.forEach(r=>by.set(r.shop,(by.get(r.shop)||0)+r.total));
+    const l=[...by].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
+    h+='<div class="ch" style="margin-top:12px"><b>Nach Geschäft</b></div><div class="hbars">'+l.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+'</span><b>'+euro(x.n)+'</b></div><div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/l[0].n*100))+'%"></span></div></div>').join("")+'</div>';
+  }
+  return h+'</div>';
 }
 function renderStats(){
   const st=S.st, h=$("head"), app=$("app");
@@ -422,7 +456,7 @@ function renderStats(){
   const days = new Set(rows.map(r=>dayKey(r.at))).size;
   const items = new Map(); rows.forEach(r=>{ const e=items.get(r.id)||{id:r.id,name:r.name,store:r.store,n:0}; e.n++; items.set(r.id,e); });
   const cur = id => S.items.find(i=>i.id===id);
-  let html='';
+  let html=spendHtml(p, prevP, prevName, inStore);
   // Kennzahlen
   const diff = rows.length-prevN;
   html+='<div class="tiles">'+
@@ -475,6 +509,7 @@ document.addEventListener("click",e=>{
   else if(k==="store"){ st.store=b.dataset.k; st.tip=""; renderStats(); }
   else if(k==="topall"){ st.topAll=!st.topAll; renderStats(); }
   else if(k==="reload") loadStats();
+  else if(k==="sptip"){ const t=$("sptip"); if(t) t.textContent=b.dataset.k; document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
   else if(k==="tip"){ st.tip=b.dataset.k; const t=$("sttip"); if(t) t.textContent=st.tip;
     document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
 });
@@ -505,12 +540,13 @@ document.addEventListener("click",e=>{
   else if(t.dataset.act==="menu") openMenu();
   else if(t.dataset.act==="stats") openStats();
   else if(t.dataset.act==="receipts") window.Receipts.open();
+  else if(t.dataset.act==="prices") window.Prices.open();
   else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; saveView(); render(); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").innerHTML) closeModal(); });
 
 /* ---------- Für Kassenzettel (receipt.js) ---------- */
-window.App = { S, api, esc, toast, sheet, closeModal, stores, storeName, labelsOf, render, refresh, $, norm, G,
+window.App = { S, api, esc, toast, sheet, closeModal, stores, storeName, labelsOf, render, refresh, $, norm, G, openEdit,
   close(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); } };
 
 /* ---------- Start ---------- */

@@ -223,6 +223,54 @@ div.rline{cursor:default}
 .prow small{color:var(--mute);margin-left:6px;font-size:12.5px}
 .prow.best b{color:var(--acc)}
 
+/* Angebote, Ladenvergleich, Preisverlauf */
+.ofb{color:#9a5b00;font-weight:600}
+@media (prefers-color-scheme: dark){ .ofb{color:#f0b35a} }
+.ofcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin:0 0 10px;overflow:hidden}
+.ofh{display:flex;width:100%;justify-content:space-between;align-items:baseline;gap:10px;background:none;border:0;padding:12px 14px 8px;text-align:left;cursor:pointer;font-size:16px}
+.ofh span{color:var(--mute);font-size:13px;white-space:nowrap}
+.ofr{display:flex;justify-content:space-between;gap:10px;padding:8px 14px;border-top:1px solid var(--line)}
+.ofl{font-size:14.5px;min-width:0}
+.ofl small{display:block;color:var(--mute);font-size:12.5px;margin-top:1px}
+.ofp{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ofp s{display:block;font-weight:400;color:var(--mute);font-size:12.5px}
+.bio{display:inline-block;font-size:11px;font-weight:700;color:var(--acc);border:1px solid var(--acc);border-radius:6px;padding:0 4px;vertical-align:1px}
+.prices.ofin{padding:0}
+.prices.ofin .ofr:first-child{border-top:0}
+.linkbtn.inl{padding:0;font-size:inherit}
+.seg2{margin-top:6px}
+.cmprow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;background:none;border:0;border-top:1px solid var(--line);padding:12px 14px;text-align:left;cursor:pointer}
+.cmprow:first-child{border-top:0}
+.cmprow small{display:block;color:var(--mute);font-size:12.5px;margin-top:1px}
+.cmpsum{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cmprow.best .cmpsum{color:var(--acc)}
+.cmprow.best b::after{content:" · am günstigsten";font-weight:600;color:var(--acc);font-size:13px}
+.cmpdet{background:var(--bg);padding:4px 14px 8px}
+.cmpi{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:14.5px}
+.cmpi:first-child{border-top:0}
+.cmpi small{color:var(--mute);margin-left:6px;font-size:12px}
+.cmpi b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.cmpi.low b{color:var(--acc)}
+.cmpi.est{color:var(--mute)}
+.mixr{font-size:14.5px;padding:5px 0;border-top:1px solid var(--line)}
+.mixr:first-of-type{border-top:0}
+.zipgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.zipgrid label{font-size:13px;color:var(--mute)}
+.zipgrid input,.pset input[type=text],.pset input:not([type]),#pc_zip,#pv_q,#pv_max{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;-webkit-appearance:none;appearance:none;margin-top:3px}
+.pset{border-top:1px solid var(--line);margin-top:10px;padding-top:12px}
+.rtick.small2{font-size:15px;padding:10px 12px;margin:0 0 10px}
+.spend{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.spend b{font-size:28px;font-variant-numeric:tabular-nums}
+.spend span{color:var(--mute);font-size:13px}
+.pvroot,.pvtab{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948}
+@media (prefers-color-scheme: dark){ .pvroot,.pvtab{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#0ca30c;--s7:#9085e9;--s8:#e66767} }
+.pvsvg{width:100%;height:auto;display:block}
+.pvgrid{stroke:var(--line);stroke-width:1}
+.pvax{font-size:11px;fill:var(--mute)}
+.pvleg{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0 12px;font-size:13.5px}
+.pvleg i,.pvdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:0}
+.pvtab{max-height:30vh;overflow:auto}
+
 #testbadge{position:sticky;top:0;z-index:30;background:#b3261e;color:#fff;text-align:center;font-size:12px;font-weight:700;letter-spacing:.04em;padding:calc(4px + env(safe-area-inset-top)) 8px 4px}
 </style>
 </head>
@@ -237,5 +285,6 @@ div.rline{cursor:default}
 <script src="/groups.js"></script>
 <script src="/app.js"></script>
 <script src="/receipt.js"></script>
+<script src="/prices.js"></script>
 </body>
 </html>
