@@ -549,6 +549,9 @@ test("Angebote: Umwandlung der marktguru-Daten", () => {
   assert.equal(o.shop, "Netto"); assert.equal(o.price, 49); assert.equal(o.oldPrice, 79); assert.equal(o.refPrice, 245); assert.equal(o.refUnit, "kg");
   assert.equal(o.amount, "200 g"); assert.equal(o.bio, 1); assert.equal(o.to, inDays(5));
   assert.equal(normalizeOffer(mgOffer(8, "Handelshof", "Tomatenmark", 0.3), ["Lidl"]).shop, "");
+  const real = normalizeOffer(mgOffer(9, "ALDI SÜD", "Oro di Parma Bio Tomatenmark", 1.19, { unit: "kg", vol: 0.14, brand: "thisisnobrand123", ref: 8.5 }), ["Aldi", "Lidl"]);
+  assert.deepEqual([real.shop, real.brand, real.amount, real.bio, real.refPrice], ["Aldi", "", "140 g", 1, 850]);
+  assert.equal(normalizeOffer({ ...mgOffer(10, "Lidl", "Zahnpasta", 4.99, { unit: "l", vol: 0.075 }), quantity: 3 }, ["Lidl"]).amount, "3 × 75 ml");
 });
 
 test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preisalarm, Ladenvergleich", async () => {

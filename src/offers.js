@@ -71,15 +71,24 @@ export function shopOfAdvertiser(name, shops) {
   const a = fold(name).replace(/[^a-z]/g, "");
   return shops.find(s => { const k = fold(s).replace(/[^a-z]/g, ""); return k && (a === k || a.startsWith(k)); }) || "";
 }
+// Packungsgröße lesbar: 0,14 kg → 140 g, 3 × 0,075 l → 3 × 75 ml, 1 Stk → leer
+export function amountText(volume, unit, quantity) {
+  let v = Number(volume), u = String(unit || "");
+  if (!(v > 0)) return "";
+  if (/^kg$/i.test(u) && v < 1) { v = Math.round(v * 1000); u = "g"; }
+  else if (/^l$/i.test(u) && v < 1) { v = Math.round(v * 1000); u = "ml"; }
+  if (/^stk/i.test(u) && v === 1 && !(Number(quantity) > 1)) return "";
+  const q = Number(quantity) > 1 ? Number(quantity) + " × " : "";
+  return q + String(Math.round(v * 1000) / 1000).replace(".", ",") + (u ? " " + u : "");
+}
 export function normalizeOffer(o, shops) {
   const adv = (o.advertisers || []).map(a => a && (a.name || a.uniqueName)).filter(Boolean);
   let shop = ""; for (const a of adv) { shop = shopOfAdvertiser(a, shops); if (shop) break; }
   const title = [o.product && o.product.name, o.description].filter(Boolean)[0] || "";
-  const brand = (o.brand && o.brand.name) || "";
+  let brand = (o.brand && o.brand.name) || "";
+  if (/^thisisnobrand/i.test(brand)) brand = "";              // marktguru-Platzhalter für „ohne Marke“
   const unit = o.unit && (o.unit.shortName || o.unit.name) || "";
-  const vol = o.volume != null && o.volume !== "" ? String(o.volume).replace(".", ",") : "";
-  const qty = o.quantity && Number(o.quantity) > 1 ? Number(o.quantity) + " × " : "";
-  const amount = vol ? qty + vol + (unit ? " " + unit : "") : "";
+  const amount = amountText(o.volume, unit, o.quantity);
   const refUnit = /^(kg|g)$/i.test(unit) ? "kg" : /^(l|ml)$/i.test(unit) ? "l" : unit ? unit : "";
   const dates = (o.validityDates || []).filter(d => d && d.to);
   const from = dates.length ? dates.map(d => String(d.from || "").slice(0, 10)).sort()[0] : "";
