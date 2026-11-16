@@ -10,7 +10,7 @@ const DEFAULT_STORES = [
 ];
 const S = { loaded:false, online:true, rev:null, items:[], stores:null, people:["Jonas","Clara"], cur:null, q:"", showAllHist:false, pending:0, dirty:false,
   me:"", sortOpen:"group", sortHist:"freq", histBy:{}, pushOn:false, filter:{},
-  view:"list", st:{ range:"week", offset:0, store:"", rows:null, first:null, loading:false, err:"", topAll:false, tip:"" } };
+  view:"list", st:{ range:"week", offset:0, store:"", lines:null, loading:false, err:"", tip:"" } };
 // Sortierung „Schon mal gekauft“ merkt sich jeder Laden selbst; sortHist ist nur der Startwert für Läden ohne eigene Wahl
 const histMode = store => S.histBy[store] || S.sortHist;
 const G = window.Groups;
@@ -210,9 +210,9 @@ function render(){
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
     const hm=histMode(S.cur), lim=S.showAllHist?hist.length:(hm==="group"?hist.length:24);
-    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+(window.Prices&&window.Prices.hasOffer(i.id)?'<small class="ofd" title="Gerade im Angebot">%</small>':'')+'</button>';
+    const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
     h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",hm,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
-    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste'+(hist.some(i=>window.Prices&&window.Prices.hasOffer(i.id))?' · <span class="ofd" style="margin:0">%</span> = gerade im Angebot':'')+'</div>';
+    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste'+'</div>';
     if(hm==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
     else h+='<div class="hist">'+hist.slice(0,lim).map(chip).join("")+'</div>';
     if(hist.length>lim) h+='<button class="linkbtn" data-act="allHist">Alle '+hist.length+' anzeigen</button>';
@@ -371,7 +371,6 @@ async function drawPush(){
 const MON=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 const MONL=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const WD=["Mo","Di","Mi","Do","Fr","Sa","So"];
-const dayKey = d => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 function startOfWeek(d){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
 function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-day+3);
   const fy=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-fy)/86400000-3+((fy.getUTCDay()+6)%7))/7); }
@@ -397,21 +396,16 @@ function period(range, offset){
 async function loadStats(){
   const st=S.st; st.loading=true; st.err=""; renderStats();
   try{
-    const rc=await api("GET","/api/receipts").catch(()=>({receipts:[]}));
+    const rc=await api("GET","/api/receipts");
     st.receipts=(rc.receipts||[]).map(r=>{ const m=String(r.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]), total:r.total, shop:r.shop, store:r.store||""}:null; }).filter(Boolean);
-    const rl=await api("GET","/api/receipt-lines").catch(()=>({lines:[]}));
+    const rl=await api("GET","/api/receipt-lines");
     st.lines=(rl.lines||[]).map(l=>{ const m=String(l.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?Object.assign({},l,{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5])}):null; }).filter(Boolean);
-    const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
+  }
   catch(e){ st.err=e.message||"Statistik konnte nicht geladen werden."; }
   st.loading=false; renderStats();
 }
 function openStats(){ S.view="stats"; S.st.tip=""; window.scrollTo(0,0); renderStats(); loadStats(); }
 function closeStats(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); }
-function barsHtml(list, max, label){
-  // waagerechte Balken: Name, Balken, Zahl
-  return '<div class="hbars">'+list.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+(x.sub?'<small>'+esc(x.sub)+'</small>':'')+'</span><b>'+x.n+'</b></div>'+
-    '<div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/max*100))+'%"></span></div></div>').join("")+'</div>';
-}
 // Echte Ausgaben aus den Kassenzetteln: Summe im Zeitraum, Wochen-Verlauf, nach Geschäft
 const euro = c => (c/100).toLocaleString("de-DE",{minimumFractionDigits:2, maximumFractionDigits:2})+" €";
 const euro0 = c => Math.round(c/100).toLocaleString("de-DE")+" €";
@@ -470,56 +464,13 @@ function renderStats(){
     '<div class="pnav"><button data-st="prev" aria-label="früher">‹</button><b>'+esc(p.label)+'</b><button data-st="next" aria-label="später"'+(st.offset>=0?' disabled':'')+'>›</button></div>'+
     '<div class="shopbar stshops"><button class="'+(st.store?'':'on')+'" data-st="store" data-k="">Alle Läden</button>'+stores().map(s=>'<button class="'+(st.store===s.id?'on':'')+'" data-st="store" data-k="'+esc(s.id)+'">'+esc(s.name)+'</button>').join("")+'</div>';
   if(st.err){ app.innerHTML='<div class="empty">'+esc(st.err)+'<br><button class="linkbtn" data-st="reload">Nochmal versuchen</button></div>'; return; }
-  if(!st.rows){ app.innerHTML='<div class="empty"><div class="spin"></div>Statistik wird geladen …</div>'; return; }
+  if(!st.lines){ app.innerHTML='<div class="empty"><div class="spin"></div>Statistik wird geladen …</div>'; return; }
+  // Grundlage sind nur noch die Kassenzettel
   const inStore = r => !st.store || r.store===st.store;
-  const rows = st.rows.filter(r=>inStore(r) && r.at>=p.from && r.at<p.to);
   const prevP = period(st.range, st.offset-1);
-  const prevN = st.rows.filter(r=>inStore(r) && r.at>=prevP.from && r.at<prevP.to).length;
   const prevName = {week:"Vorwoche", month:"Vormonat", year:"Vorjahr"}[st.range];
-  const days = new Set(rows.map(r=>dayKey(r.at))).size;
-  const items = new Map(); rows.forEach(r=>{ const e=items.get(r.id)||{id:r.id,name:r.name,store:r.store,n:0}; e.n++; items.set(r.id,e); });
-  const cur = id => S.items.find(i=>i.id===id);
   let html=spendHtml(p, prevP, prevName, inStore)+boughtHtml(p, inStore);
-  // Kennzahlen
-  const diff = rows.length-prevN;
-  html+='<div class="tiles">'+
-    '<div class="tile"><div class="tv">'+rows.length+'</div><div class="tl">Sachen gekauft</div>'+(prevN||rows.length?'<div class="td">'+(diff===0?'wie':(diff>0?'+':'−')+Math.abs(diff)+' ggü.')+' '+prevName+'</div>':'')+'</div>'+
-    '<div class="tile"><div class="tv">'+items.size+'</div><div class="tl">verschiedene Artikel</div></div>'+
-    '<div class="tile"><div class="tv">'+days+'</div><div class="tl">Einkaufstage</div></div>'+
-    '<div class="tile"><div class="tv">'+(days?(Math.round(rows.length/days*10)/10).toLocaleString("de-DE"):"–")+'</div><div class="tl">Sachen pro Einkaufstag</div></div></div>';
-  if(!rows.length){
-    html+='<div class="card-s"><div class="empty" style="padding:24px 8px">In diesem Zeitraum wurde '+(st.store?'bei '+esc(storeName(st.store))+' ':'')+'nichts abgehakt.</div></div>';
-  } else {
-    // Verlauf
-    const counts=p.buckets.map(b=>rows.filter(r=>r.at>=b.from && r.at<b.to).length), max=Math.max(1,...counts);
-    html+='<div class="card-s"><div class="ch"><b>Verlauf</b><span id="sttip">'+(st.tip?esc(st.tip):'Balken antippen für Details')+'</span></div>'+
-      '<div class="vbars r-'+st.range+'"><span class="ymax">'+max+'</span>'+p.buckets.map((b,i)=>'<button class="vb" data-st="tip" data-k="'+esc(b.tip+": "+counts[i]+" "+(counts[i]===1?"Sache":"Sachen"))+'" title="'+esc(b.tip+": "+counts[i])+'">'+
-        '<span class="vbar'+(counts[i]?'':' zero')+'" style="height:'+(counts[i]?Math.max(4,counts[i]/max*100):0)+'%"></span><span class="vl">'+esc(b.label)+'</span></button>').join("")+'</div></div>';
-    // Am häufigsten gekauft
-    const top=[...items.values()].sort((a,b)=>b.n-a.n || a.name.localeCompare(b.name,"de"));
-    const shown=st.topAll?top:top.slice(0,10);
-    html+='<div class="card-s"><div class="ch"><b>Am häufigsten gekauft</b><span>'+top.length+' Artikel</span></div>'+
-      barsHtml(shown.map(x=>{ const c=cur(x.id); return {name:c?c.name:x.name, sub:st.store?"":storeName(x.store), n:x.n}; }), top[0].n)+
-      (top.length>10?'<button class="linkbtn" data-st="topall">'+(st.topAll?'Weniger anzeigen':'Alle '+top.length+' anzeigen')+'</button>':'')+'</div>';
-    // Warengruppen
-    const grp=new Map(); rows.forEach(r=>{ const c=cur(r.id); const g=G.groupOf(c||{name:r.name,cat:r.cat}); grp.set(g,(grp.get(g)||0)+1); });
-    const gl=[...grp].map(([g,n])=>({name:G.groupName(g),n})).sort((a,b)=>b.n-a.n);
-    html+='<div class="card-s"><div class="ch"><b>Nach Warengruppe</b></div>'+barsHtml(gl, gl[0].n)+'</div>';
-    // Läden und Labels
-    if(!st.store){
-      const sl=stores().map(s=>({name:s.name,n:rows.filter(r=>r.store===s.id).length})).filter(x=>x.n).sort((a,b)=>b.n-a.n);
-      if(sl.length>1) html+='<div class="card-s"><div class="ch"><b>Nach Laden</b></div>'+barsHtml(sl, sl[0].n)+'</div>';
-    }
-    const lab=new Map(); rows.forEach(r=>r.shops.forEach(l=>lab.set(l,(lab.get(l)||0)+1)));
-    if(lab.size){ const ll=[...lab].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
-      html+='<div class="card-s"><div class="ch"><b>Nach Label</b><span>nur Sachen mit Label</span></div>'+barsHtml(ll, ll[0].n)+'</div>'; }
-    // Wer hat abgehakt
-    const pp=new Map(); rows.forEach(r=>{ const k=r.person||"ohne Angabe"; pp.set(k,(pp.get(k)||0)+1); });
-    const pl=[...pp].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
-    html+='<div class="card-s"><div class="ch"><b>Wer hat abgehakt</b></div>'+barsHtml(pl, pl[0].n)+'</div>';
-  }
-  html+='<div class="small" style="margin:14px 6px 0">Gezählt wird jedes Abhaken'+(st.first?' seit '+st.first.toLocaleDateString("de-DE"):'')+
-    '. Käufe aus der alten Apple-Notiz haben kein Datum und fehlen hier – sie stecken nur in der „×“-Zahl bei „Schon mal gekauft“.</div>';
+  if((st.receipts||[]).length) html+='<div class="small" style="margin:14px 6px 0">Grundlage sind eure Kassenzettel. Einkäufe ohne hochgeladenen Bon fehlen hier.</div>';
   app.innerHTML=html;
 }
 document.addEventListener("click",e=>{
@@ -530,13 +481,10 @@ document.addEventListener("click",e=>{
   else if(k==="prev"){ st.offset--; st.tip=""; renderStats(); }
   else if(k==="next"){ if(st.offset<0) st.offset++; st.tip=""; renderStats(); }
   else if(k==="store"){ st.store=b.dataset.k; st.tip=""; renderStats(); }
-  else if(k==="topall"){ st.topAll=!st.topAll; renderStats(); }
   else if(k==="ball"){ st.boughtAll=!st.boughtAll; renderStats(); }
   else if(k==="bsort"){ st.boughtSort=b.dataset.k; renderStats(); }
   else if(k==="reload") loadStats();
   else if(k==="sptip"){ const t=$("sptip"); if(t) t.textContent=b.dataset.k; document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
-  else if(k==="tip"){ st.tip=b.dataset.k; const t=$("sttip"); if(t) t.textContent=st.tip;
-    document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
 });
 
 /* ---------- Ereignisse ---------- */

@@ -90,7 +90,6 @@ function itemOffersCard(it, list, extra){
   return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+' ⋯</span></button>'+
     sorted.slice(0,6).map(offerRow).join("")+(sorted.length>6?'<div class="small" style="padding:6px 14px 10px">und '+(sorted.length-6)+' weitere</div>':'')+'</div>';
 }
-const boughtText = i => (i.buyCount||0)>1 ? i.buyCount+'× gekauft · ' : '';
 function offersHtml(){
   const cfg=P.data.config, W=P.data.watch||{};
   let h='<div class="small" style="margin:0 4px 10px">Prospekt-Angebote für <b>'+esc(cfg.zip)+'</b>: '+(cfg.shops.length?cfg.shops.map(s=>esc(s)+(cfg.zipByShop[s]?' ('+esc(cfg.zipByShop[s])+')':'')).join(", "):'noch keine Geschäfte gewählt')+
@@ -104,18 +103,8 @@ function offersHtml(){
   const pending=checkable.filter(i=>!W[i.id] || !W[i.id].checkedAt).length;
   h+='<button class="btn block" id="pr_refresh" data-pr="refresh"'+(P.refreshing?' disabled':'')+'>'+(P.refreshing?esc(P.refreshing):'Neue Angebote suchen')+'</button>';
   h+='<div class="sec"><b>Auf eurer Liste · '+withOffers.length+'</b><span>'+checkable.length+' Sachen geprüft'+(pending?', '+pending+' noch nicht':'')+'</span></div>';
-  // oft Gekauftes zuerst
-  const often=(a,b)=>(b.buyCount||0)-(a.buyCount||0) || a.name.localeCompare(b.name,"de");
-  if(withOffers.length) h+=withOffers.sort(often).map(i=>itemOffersCard(i, offersOf(i.id), boughtText(i))).join("");
+  if(withOffers.length) h+=withOffers.sort((a,b)=>a.name.localeCompare(b.name,"de")).map(i=>itemOffersCard(i, offersOf(i.id))).join("");
   else h+='<div class="list"><div class="empty">'+(pending?'Die App sucht gerade – alle paar Minuten kommen ein paar Sachen dazu.':'Für eure offenen Sachen gibt es gerade keine Angebote.')+'</div></div>';
-  // Angebote für Sachen, die ihr schon gekauft habt (gerade nicht auf der Liste)
-  const bought=S.items.filter(i=>i.done && offersOf(i.id).length && !(W[i.id] && W[i.id].alarm)).sort(often);
-  if(bought.length){
-    const shown=P.allBought?bought:bought.slice(0,10);
-    h+='<div class="sec"><b>Schon mal gekauft · '+bought.length+'</b><span>oft Gekauftes zuerst</span></div>'+
-      shown.map(i=>itemOffersCard(i, offersOf(i.id), boughtText(i))).join("")+
-      (bought.length>10?'<button class="linkbtn" data-pr="allbought">'+(P.allBought?'Weniger anzeigen':'Alle '+bought.length+' anzeigen')+'</button>':'');
-  }
   if(alarms.length){
     h+='<div class="sec"><b>Preisalarm · '+alarms.length+'</b></div>';
     h+=alarms.map(i=>{ const w=W[i.id], l=offersOf(i.id).filter(o=>w.alarmMax==null || o.price<=w.alarmMax);
@@ -124,7 +113,7 @@ function offersHtml(){
   }
   const none=checkable.filter(i=>W[i.id] && W[i.id].checkedAt && !offersOf(i.id).length);
   if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+'</button>').join(", ")+'</div>';
-  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Gesucht wird für alles auf der Liste und alles, was ihr schon gekauft habt. Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Oben steht die Sorte, die ihr laut Kassenzettel schon gekauft habt („schon gekauft“), danach geht es nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
+  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Oben steht die Sorte, die ihr laut Kassenzettel schon gekauft habt („schon gekauft“), danach geht es nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
   return h;
 }
 
@@ -313,7 +302,6 @@ document.addEventListener("click",e=>{
   else if(k==="tab"){ P.tab=b.dataset.k; draw(); window.scrollTo(0,0); }
   else if(k==="reload") load(true);
   else if(k==="refresh") refreshAll();
-  else if(k==="allbought"){ P.allBought=!P.allBought; draw(); }
   else if(k==="config") openConfig();
   else if(k==="cmpstore"){ P.cmpStore=b.dataset.k; P.openShop=""; draw(); }
   else if(k==="shop"){ P.openShop = P.openShop===b.dataset.k ? "" : b.dataset.k; draw(); }
@@ -324,6 +312,5 @@ setTimeout(()=>load(), 1500);
 setInterval(()=>{ if(!document.hidden) load(); }, 10*60*1000);
 if(/[?&]angebote\b/.test(location.search)) setTimeout(()=>open("offers"), 300);
 
-const hasOffer = id => !!(P.data && bestNow(id));
-window.Prices = { open, render: draw, badge, hasOffer, editSection, load, _P:P };
+window.Prices = { open, render: draw, badge, editSection, load, _P:P };
 })();

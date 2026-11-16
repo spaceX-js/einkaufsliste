@@ -153,7 +153,7 @@ try {
   /* ---------- Angebote, Ladenvergleich, Preisverlauf, Preisalarm, Ausgaben ---------- */
   const d = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   db.prepare("INSERT INTO settings (key,value) VALUES ('offers_config',?)").run(JSON.stringify({ zip: "50354", shops: ["Lidl", "Penny"], zipByShop: {} }));
-  db.prepare("UPDATE items SET done=0, added_at=? WHERE id IN ('birne','pet','tm')").run(new Date().toISOString());
+  db.prepare("UPDATE items SET done=0, added_at=? WHERE id IN ('birne','pet','tm','hafer')").run(new Date().toISOString());
   db.prepare("UPDATE settings SET value = CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='rev'").run();
   const io = db.prepare("INSERT INTO offers (item_id,offer_id,shop,title,brand,price,old_price,ref_price,ref_unit,amount,bio,valid_from,valid_to,fetched_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
   io.run("pet", "o1", "Lidl", "Petersilie glatt", "", 89, 129, null, "", "1 Bund", 0, d(-1), d(4), "x");
@@ -174,10 +174,10 @@ try {
   await page.screenshot({ path: "/tmp/pr-1.png" });
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
-  ok((await page.locator(".ofcard").count()) === 4, "4 Kärtchen mit Angeboten");
+  ok((await page.locator(".ofcard").count()) === 3, "3 Kärtchen (nur Sachen auf der Liste)");
   const haf = await page.locator(".ofcard", { hasText: "Haferdrink" }).locator(".ofr").allTextContents();
   ok(haf.length === 2 && /Barista.*schon gekauft/.test(haf[0]) && /My Vay/.test(haf[1]) && !/schon gekauft/.test(haf[1]), "schon gekaufte Sorte zuerst: " + haf.join(" | "));
-  ok((await page.locator(".sec", { hasText: "Schon mal gekauft · 2" }).count()) === 1 && /2× gekauft/.test(await page.locator(".ofcard", { hasText: "Skyr" }).textContent()), "Abschnitt „Schon mal gekauft“ mit Skyr");
+  ok((await page.locator(".sec", { hasText: "Schon mal gekauft" }).count()) === 0, "kein Abschnitt für schon Gekauftes");
   const tmRows = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl b + *").allTextContents().catch(() => []);
   const tmTitles = await page.locator(".ofcard", { hasText: "Tomatenmark" }).locator(".ofl").allTextContents();
   ok(/Großpackung/.test(tmTitles[0]) && /Baresa/.test(tmTitles[1]) && /Bio Tomatenmark/.test(tmTitles[2]), "Reihenfolge nach Grundpreis: " + tmTitles.map(t => t.slice(0, 30)).join(" | "));
@@ -189,9 +189,9 @@ try {
   await page.waitForSelector(".cmprow");
   const cmp = await page.locator(".cmprow").allTextContents();
   // Lidl: Petersilie 0,89 (Angebot) + Tomatenmark 1,29 (bester Grundpreis) + Birnen geschätzt 0,55 → ~2,73; Penny: Birnen 0,55 + Petersilie 1,39 (Bons) + TM geschätzt 1,29 → ~3,23
-  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~2,73 €/.test(cmp[0]) && /~3,23 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
+  ok(cmp.length === 2 && /^Lidl/.test(cmp[0]) && /~4,52 €/.test(cmp[0]) && /~5,02 €/.test(cmp[1]), "Ladenvergleich: " + cmp.join(" | "));
   await page.click(".cmprow >> nth=0");
-  ok((await page.locator(".cmpi").count()) === 3 && (await page.locator(".cmpi.est").count()) === 1, "Details mit geschätztem Preis");
+  ok((await page.locator(".cmpi").count()) === 4 && (await page.locator(".cmpi.est").count()) === 2, "Details mit geschätzten Preisen");
   ok(/Günstigster Mix/.test(await page.locator("#app").textContent()), "günstigster Mix");
   await page.screenshot({ path: "/tmp/pr-3.png", fullPage: true });
   await page.click("[data-pr=tab][data-k=offers]");
