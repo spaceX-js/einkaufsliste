@@ -3,6 +3,7 @@
 // Das Passwort liegt nur als Hash in der Datenbank (Tabelle settings).
 // Benachrichtigungen: Web Push (src/push.js); der Schlüssel dafür wird beim ersten Bedarf erzeugt und in settings gespeichert.
 import { generateVapid, sendPush } from "./push.js";
+import { runOffersProbe } from "./offers.js";
 
 const COOKIE = "ek_session";
 const ITER = 100000;
@@ -48,6 +49,7 @@ export default {
   // Läuft alle 5 Minuten (wrangler.jsonc → triggers.crons): „… war einkaufen“-Nachrichten verschicken
   async scheduled(event, env, ctx) {
     ctx.waitUntil(announceShopping(env));
+    ctx.waitUntil(runOffersProbe(env).catch(() => {}));   // Testlauf Angebote (nur wenn angefordert)
   }
 };
 
