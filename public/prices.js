@@ -231,9 +231,10 @@ async function editSection(id, el){
   // Angebote suchen (nur für markierte Artikel) und Preiswecker
   const on=!!(W.search||W.alarm);
   const sw=(id,chk,title,sub)=>'<label class="sw'+(chk?' on':'')+'"><input type="checkbox" id="'+id+'"'+(chk?' checked':'')+'><span class="swt"><b>'+title+'</b><small>'+sub+'</small></span><span class="swst">'+(chk?'An':'Aus')+'</span><span class="swk"></span></label>';
-  h+='<div class="pset">'+sw("pv_on", on, ICON_TAG+' Angebote suchen', on?'Die App sucht in den Prospekten nach diesem Artikel':'Aus – für diesen Artikel wird nicht gesucht')+
-    (on?'<label class="f"><span>Angebote suchen als</span><input id="pv_q" maxlength="60" value="'+esc(W.query||it.name)+'"></label>'+
-      sw("pv_al", !!W.alarm, ICON_BELL+' Preiswecker', W.alarm?'Nachricht aufs Handy, sobald es ein Angebot gibt':'Zusätzlich eine Nachricht aufs Handy bei Angebot')+
+  // erst den Suchbegriff prüfen, dann einschalten
+  h+='<div class="pset"><label class="f"><span>Angebote suchen als'+(on?'':' – erst prüfen, dann einschalten')+'</span><input id="pv_q" maxlength="60" value="'+esc(W.query||it.name)+'"></label>'+
+    sw("pv_on", on, ICON_TAG+' Angebote suchen', on?'Die App sucht in den Prospekten nach dem Begriff oben':'Aus – für diesen Artikel wird nicht gesucht')+
+    (on?sw("pv_al", !!W.alarm, ICON_BELL+' Preiswecker', W.alarm?'Nachricht aufs Handy, sobald es ein Angebot gibt':'Zusätzlich eine Nachricht aufs Handy bei Angebot')+
       (W.alarm?'<label class="f"><span>nur bis höchstens (€, leer = jedes Angebot)</span><input id="pv_max" inputmode="decimal" value="'+(W.alarmMax!=null?esc((W.alarmMax/100).toFixed(2).replace(".",",")):"")+'"></label>':'')+
       '<div class="small">'+(W.checkedAt?'Zuletzt gesucht: '+esc(new Date(W.checkedAt).toLocaleString("de-DE",{weekday:"short",hour:"2-digit",minute:"2-digit"})):'Wird gleich gesucht')+'</div>':'')+'</div>';
   el.innerHTML=h;
@@ -248,8 +249,10 @@ async function editSection(id, el){
       if(document.body.contains(el)) editSection(id, el);
     }catch(e){ A.toast(e.message); }
   };
-  $("pv_on").addEventListener("change",e=>{ if(e.target.checked) save({search:true, query:it.name}, "search"); else save({search:false, alarm:false}, "off"); });
-  if($("pv_q")) $("pv_q").addEventListener("change",e=>{ const q=e.target.value.trim()||it.name; save({query:q}, "search"); });
+  const qv=()=>($("pv_q").value.trim()||it.name).slice(0,60);
+  $("pv_on").addEventListener("change",e=>{ if(e.target.checked) save({search:true, query:qv()}, "search"); else save({search:false, alarm:false}, "off"); });
+  // Begriff ändern: bei eingeschalteter Suche sofort neu suchen, sonst nur merken
+  $("pv_q").addEventListener("change",()=>{ if(on) save({query:qv()}, "search"); else save({query:qv()}); });
   if($("pv_al")) $("pv_al").addEventListener("change",e=>save({alarm:e.target.checked}, "alarm"));
   if($("pv_max")) $("pv_max").addEventListener("change",e=>{ const mx=e.target.value.trim(); const max = mx ? Math.round(parseFloat(mx.replace(",","."))*100) : null;
     if(mx && !(max>0)){ A.toast("Bitte einen Preis wie 1,49 eingeben"); return; } save({alarmMax:max}); });

@@ -203,6 +203,18 @@ try {
   await page.click(".ofcard .ofh >> text=Petersilie");
   await page.waitForSelector("#pv_q");
   ok((await page.locator("#e_prices .ofr").count()) === 2 && (await page.locator("#e_prices .prow").count()) === 1, "Bearbeiten: Angebot und bezahlter Preis");
+  // Begriff steht vor dem Schalter; ausschalten, Begriff ändern, einschalten → sucht mit dem neuen Begriff
+  ok(await page.evaluate(() => { const q = document.getElementById("pv_q"), sw = document.getElementById("pv_on"); return !!q && !!sw && (q.compareDocumentPosition(sw) & Node.DOCUMENT_POSITION_FOLLOWING) > 0; }), "Suchbegriff steht vor dem Schalter");
+  await page.click("label.sw:has(#pv_on)"); await page.waitForTimeout(500);
+  ok(db.prepare("SELECT search FROM offer_watch WHERE item_id='pet'").get().search === 0 && await page.locator("#pv_q").count() === 1, "Suche aus, Begriff weiter sichtbar");
+  const before = mgCalls;
+  await page.fill("#pv_q", "Petersilie glatt"); await page.press("#pv_q", "Tab"); await page.waitForTimeout(400);
+  ok(mgCalls === before && db.prepare("SELECT query, search FROM offer_watch WHERE item_id='pet'").get().query === "Petersilie glatt", "Begriff gemerkt, ohne zu suchen");
+  await page.click("label.sw:has(#pv_on)"); await page.waitForTimeout(800);
+  const wq = db.prepare("SELECT query, search FROM offer_watch WHERE item_id='pet'").get();
+  ok(wq.search === 1 && wq.query === "Petersilie glatt" && mgCalls > before, "Einschalten sucht mit dem geprüften Begriff");
+  db.prepare("INSERT OR REPLACE INTO offers (item_id,offer_id,shop,title,brand,price,old_price,ref_price,ref_unit,amount,bio,valid_from,valid_to,fetched_at) VALUES ('pet','o1','Lidl','Petersilie glatt','',89,129,NULL,'','1 Bund',0,?,?,'x'),('pet','o10','Lidl','Petersilie glatt Topf','',99,NULL,NULL,'','',0,?,?,'x')").run(d(-1), d(4), d(-1), d(4));
+  await page.evaluate(() => window.Prices.load(true));
   ok(await page.locator("label.sw.on", { hasText: "Angebote suchen" }).count() === 1 && /An/.test(await page.locator("label.sw.on .swst").first().textContent()), "Schalter „Angebote suchen“ sichtbar an");
   await page.click("label.sw:has(#pv_al)"); await page.waitForSelector("#pv_max");
   ok(await page.locator("label.sw.on", { hasText: "Preiswecker" }).count() === 1, "Preiswecker sichtbar an");
