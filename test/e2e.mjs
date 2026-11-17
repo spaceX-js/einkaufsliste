@@ -181,5 +181,24 @@ ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "A
   await page.screenshot({ path: "/tmp/e2e-drop.png" });
 }
 
+{
+  await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
+// Autovervollständigung: schon ab einem Buchstaben, Wortanfänge, alle Läden, Labels bleiben erhalten
+  await page.fill("#q", "d");
+  const ac1 = await page.locator("#sugg .ac button").allTextContents();
+  ok(ac1.length === 1 && /^Duschgel.*Drogerie/.test(ac1[0]), "„d“ → Duschgel (Drogerie): " + ac1.join(" | "));
+  await page.fill("#q", "butt");
+  ok(/steht schon drauf/.test(await page.locator("#sugg .ac button", { hasText: "Butter" }).textContent()), "offene Sache: „steht schon drauf“");
+  await page.screenshot({ path: "/tmp/e2e-ac-open.png" });
+  await page.fill("#q", "kart @Aldi");
+  ok((await page.locator("#sugg .ac button b").first().textContent()) === "Kart", "getippter Teil fett");
+  await page.click("#sugg .ac button"); await page.waitForTimeout(300);
+  const kart = db.prepare("SELECT done, shop FROM items WHERE id='f'").get();
+  ok(kart.done === 0 && kart.shop === "Aldi" && await page.inputValue("#q") === "", "Kartoffeln mit Label @Aldi wieder auf der Liste");
+  await page.fill("#q", "dusch"); await page.click("#sugg .ac button"); await page.waitForTimeout(300);
+  ok(db.prepare("SELECT done, store FROM items WHERE id='g'").get().done === 0 && db.prepare("SELECT COUNT(*) n FROM items WHERE name='Duschgel'").get().n === 1, "Duschgel kommt in seinen eigenen Laden (Drogerie), kein Doppel");
+  await page.screenshot({ path: "/tmp/e2e-ac.png" });
+}
+
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

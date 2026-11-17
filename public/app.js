@@ -173,14 +173,22 @@ function renderHead(light){
   renderSugg();
   const on=h.querySelector(".store.on"); if(on) on.scrollIntoView({inline:"nearest",block:"nearest"});
 }
+// Autovervollständigung beim Eintippen: alles, was schon einmal angelegt wurde (alle Läden)
 function renderSugg(){
   const el=$("sugg"); if(!el) return;
-  const q=norm(S.q); if(q.length<2){ el.innerHTML=""; return; }
+  const at=S.q.search(/\s*@/); const base=at<0?S.q:S.q.slice(0,at);
+  const q=norm(base); if(!q){ el.innerHTML=""; return; }
+  const rank=i=>{ const n=norm(i.name); if(n.startsWith(q)) return 0; if(n.split(/[\s-]+/).some(w=>w.startsWith(q))) return 1; return q.length>=2 && n.includes(q) ? 2 : 9; };
   const seen=new Set();
-  const hits=S.items.filter(i=>i.done && norm(i.name).includes(q))
-    .sort((a,b)=>(a.store===S.cur?0:1)-(b.store===S.cur?0:1) || (norm(a.name).startsWith(q)?0:1)-(norm(b.name).startsWith(q)?0:1))
-    .filter(i=>{ const k=norm(i.name); if(seen.has(k)) return false; seen.add(k); return true; }).slice(0,6);
-  el.innerHTML=hits.map(i=>'<button data-sugg="'+esc(i.id)+'">'+esc(i.name)+(i.store!==S.cur?'<small>'+esc(storeName(i.store))+'</small>':'')+'</button>').join("");
+  const hits=S.items.map(i=>({i,r:rank(i)})).filter(x=>x.r<9)
+    .sort((a,b)=>a.r-b.r || (a.i.store===S.cur?0:1)-(b.i.store===S.cur?0:1) || (b.i.buyCount||0)-(a.i.buyCount||0) || a.i.name.localeCompare(b.i.name,"de"))
+    .filter(x=>{ const k=norm(x.i.name)+"|"+x.i.store; if(seen.has(k)) return false; seen.add(k); return true; }).slice(0,7).map(x=>x.i);
+  if(!hits.length){ el.innerHTML=""; return; }
+  // getippten Teil fett hervorheben
+  const mark=name=>{ const n=name.toLowerCase(), k=n.indexOf(base.trim().toLowerCase()); const L=base.trim().length;
+    return k<0||!L ? esc(name) : esc(name.slice(0,k))+'<b>'+esc(name.slice(k,k+L))+'</b>'+esc(name.slice(k+L)); };
+  el.innerHTML='<div class="ac">'+hits.map(i=>'<button type="button" data-sugg="'+esc(i.id)+'"'+(i.done?'':' class="onl"')+'><span>'+mark(i.name)+'</span>'+
+    '<small>'+[i.done?'':'steht schon drauf', i.store!==S.cur?esc(storeName(i.store)):'', (i.buyCount||0)>1&&i.done?i.buyCount+'×':''].filter(Boolean).join(" · ")+'</small></button>').join("")+'</div>';
 }
 function render(){
   if(S.view==="stats"){ renderStats(); return; }
@@ -510,7 +518,12 @@ document.addEventListener("click",e=>{
   if(t.dataset.tick) toggle(t.dataset.tick);
   else if(t.dataset.edit) openEdit(t.dataset.edit);
   else if(t.dataset.readd){ if(pressed){ pressed=false; return; } const it=S.items.find(i=>i.id===t.dataset.readd); if(it){ addItem(it.name,it.store); toast("„"+it.name+"“ wieder auf der Liste"); } }
-  else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){ S.q=""; addItem(it.name,S.cur); const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
+  else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){
+    // getippte Labels (z. B. „@Lidl“) mitnehmen; der Artikel kommt in seinen eigenen Laden
+    const at=S.q.search(/\s*@/); const labels=at<0?"":S.q.slice(at);
+    S.q=""; addItem(it.name+labels, it.store);
+    if(it.store!==S.cur && it.done) toast("„"+it.name+"“ bei "+storeName(it.store)+" eingetragen");
+    const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
   else if(t.dataset.act==="menu") openMenu();
   else if(t.dataset.act==="stats") openStats();
   else if(t.dataset.act==="receipts") window.Receipts.open();

@@ -6,7 +6,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 ## Funktionen
 
 - Läden oben als Reiter, mit Anzahl der offenen Sachen
-- Eintippen + Enter fügt hinzu; ab 2 Buchstaben Vorschläge aus „Schon mal gekauft“
+- Eintippen + Enter fügt hinzu; Autovervollständigung ab dem ersten Buchstaben aus allem, was schon angelegt ist (alle Läden, Wortanfänge zuerst, getippter Teil fett; Antippen trägt den Artikel in seinem eigenen Laden ein, getippte @Labels bleiben erhalten, Offenes zeigt „steht schon drauf“)
 - Antippen hakt ab (mit „Rückgängig“); Abgehaktes erscheint unter „Schon mal gekauft“ und lässt sich mit einem Tipp wieder auf die Liste setzen
 - **×** am Eintrag: „doch nicht kaufen“ – nimmt ihn von der Liste, zählt aber nicht als Kauf (keine Häufigkeit, keine Nachricht); er steht wieder unter „Schon mal gekauft“. Technisch: `/api/item` mit `skip: true`
 - „⋯“ bzw. gedrückt halten: Name, Notiz (Menge, Marke) und Laden ändern, von der Liste nehmen oder ganz löschen (auch aus „Schon mal gekauft“)
