@@ -225,6 +225,26 @@ div.rline{cursor:default}
 
 /* Angebote, Ladenvergleich, Preisverlauf */
 .ofb{color:#9a5b00;font-weight:600}
+.ofb.off{color:var(--mute);font-weight:500}
+.ofi{display:inline-flex;gap:1px;vertical-align:-2px;margin-right:3px;color:var(--acc)}
+.ic{width:14px;height:14px}
+.more .pen{width:19px;height:19px;display:block}
+.ofh .pen{width:17px;height:17px;flex:none;color:var(--mute);margin-left:6px;align-self:center}
+.ofh span{flex:1;text-align:right}
+/* Schalter */
+.sw{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin:0 0 10px;cursor:pointer;position:relative;background:var(--bg)}
+.sw input{position:absolute;opacity:0;pointer-events:none}
+.sw .swt{flex:1;min-width:0}
+.sw .swt b{display:flex;align-items:center;gap:6px;font-size:15.5px}
+.sw .swt small{display:block;color:var(--mute);font-size:12.5px;margin-top:2px}
+.sw .swst{font-size:13px;font-weight:700;color:var(--mute)}
+.sw .swk{flex:none;width:46px;height:28px;border-radius:14px;background:var(--line);position:relative;transition:background .15s}
+.sw .swk::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s}
+.sw.on{border-color:var(--acc);background:var(--acc-soft)}
+.sw.on .swst{color:var(--acc)}
+.sw.on .swk{background:var(--acc)}
+.sw.on .swk::after{left:21px}
+.sw .ic{width:17px;height:17px;color:var(--acc)}
 @media (prefers-color-scheme: dark){ .ofb{color:#f0b35a} }
 .ofcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin:0 0 10px;overflow:hidden}
 .ofh{display:flex;width:100%;justify-content:space-between;align-items:baseline;gap:10px;background:none;border:0;padding:12px 14px 8px;text-align:left;cursor:pointer;font-size:16px}

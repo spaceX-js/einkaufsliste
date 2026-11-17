@@ -52,7 +52,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(announceShopping(env));
     ctx.waitUntil(runOffersProbe(env).catch(() => {}));   // Testlauf Angebote (nur wenn angefordert)
-    ctx.waitUntil(refreshOffers(env, msg => deliverAll(env, msg)).catch(() => {}));   // Angebote prüfen, Preisalarm
+    ctx.waitUntil(refreshOffers(env, msg => deliverAll(env, msg)).catch(() => {}));   // Angebote prüfen, Preiswecker
   }
 };
 
@@ -171,7 +171,7 @@ async function api(request, env, settings, url, ctx) {
     return json({ ok: true }, 200, { "Set-Cookie": cookie(await sessionToken(secret)) });
   }
 
-  // Kassenzettel (src/receipts-api.js), Angebote und Preisalarm (src/offers-api.js)
+  // Kassenzettel (src/receipts-api.js), Angebote und Preiswecker (src/offers-api.js)
   const helpers = { json, readJson, bumpRev, revOf, people, deliverAll: msg => deliverAll(env, msg) };
   const rr = await receiptApi(request, env, settings, url, helpers);
   if (rr) return rr;
@@ -248,7 +248,7 @@ async function deliver(env, subs, message, origin) {
     return status;
   }));
 }
-// An alle angemeldeten Handys (z. B. Preisalarm)
+// An alle angemeldeten Handys (z. B. Preiswecker)
 export async function deliverAll(env, message) {
   const subs = (await env.DB.prepare("SELECT endpoint, p256dh, auth, person FROM push_subs").all()).results;
   if (!subs.length) return [];

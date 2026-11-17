@@ -2,8 +2,8 @@
 // Die Schlüssel stehen öffentlich im HTML der marktguru-Startseite; sie werden in settings zwischengespeichert.
 //
 // Ablauf: Der Cron (alle 5 Minuten) prüft jeweils ein paar Artikel – offene Sachen der Liste und Artikel
-// mit Preisalarm. Gefundene Angebote landen in der Tabelle offers (alte bleiben für den Preisverlauf).
-// Bei Preisalarm gibt es eine Nachricht aufs Handy.
+// mit Preiswecker. Gefundene Angebote landen in der Tabelle offers (alte bleiben für den Preisverlauf).
+// Bei Preiswecker gibt es eine Nachricht aufs Handy.
 
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 export const DEFAULT_CONFIG = { zip: "50354", shops: [], zipByShop: {}, rules: { bioFirst: true, ownBrandOk: true } };
@@ -145,20 +145,17 @@ export async function checkItem(env, item, config, query) {
   return { offers, query };
 }
 
-/* ---------- Cron: fällige Artikel prüfen, Preisalarme verschicken ---------- */
+/* ---------- Cron: fällige Artikel prüfen, Preiswecker verschicken ---------- */
 export async function refreshOffers(env, deliverAlarm, nowMs = Date.now(), opts = {}) {
   const settings = {}; for (const r of (await env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('offers_config','stores')").all()).results) settings[r.key] = r.value;
   const config = readConfig(settings);
   if (!config.shops.length) return [];
-  // Läden, in denen eines der Geschäfte in der Nähe liegt (z. B. Supermarkt, Drogerie)
-  let stores = []; try { stores = JSON.parse(settings.stores || "[]"); } catch (e) {}
-  const near = stores.filter(s => (s.labels || []).some(l => config.shops.includes(l))).map(s => s.id);
   const since = new Date(nowMs - RECHECK_MS).toISOString();
   const { results } = await env.DB.prepare(`SELECT i.id, i.name, i.store, w.query, w.checked_at, w.alarm, w.alarm_max, w.alarm_sent
-    FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
-    WHERE (${WATCHED(near)})
+    FROM items i JOIN offer_watch w ON w.item_id = i.id
+    WHERE ${WATCHED()}
       AND (w.checked_at IS NULL OR w.checked_at < ?)
-    ORDER BY w.checked_at IS NOT NULL, w.checked_at LIMIT ?`).bind(...near, opts.since || since, opts.limit || PER_RUN).all();
+    ORDER BY w.checked_at IS NOT NULL, w.checked_at LIMIT ?`).bind(opts.since || since, opts.limit || PER_RUN).all();
   const out = [];
   for (const it of results) {
     const query = it.query || queryFor(it.name);
@@ -179,16 +176,15 @@ export async function refreshOffers(env, deliverAlarm, nowMs = Date.now(), opts 
   return out;
 }
 
-// Artikel, für die Angebote gesucht werden: alles Offene in Läden mit Geschäften in der Nähe – und alles mit Preisalarm
-const WATCHED = near => `(i.done = 0 AND i.store IN (${near.map(() => "?").join(",") || "''"})) OR w.alarm = 1`;
+// Artikel, für die Angebote gesucht werden: nur die markierten („Angebote suchen“ oder Preiswecker)
+const WATCHED = () => `(w.search = 1 OR w.alarm = 1)`;
 export async function watchedCount(env, config, stores, sinceIso) {
-  const near = stores.filter(s => (s.labels || []).some(l => config.shops.includes(l))).map(s => s.id);
   const r = await env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN w.checked_at IS NULL OR w.checked_at < ? THEN 1 ELSE 0 END) AS due
-    FROM items i LEFT JOIN offer_watch w ON w.item_id = i.id
-    WHERE ${WATCHED(near)}`).bind(sinceIso, ...near).first();
+    FROM items i JOIN offer_watch w ON w.item_id = i.id
+    WHERE ${WATCHED()}`).bind(sinceIso).first();
   return { total: r.total || 0, due: r.due || 0 };
 }
-// Preisalarm: gültiges Angebot (heute oder demnächst) unter dem Wunschpreis, noch nicht gemeldet
+// Preiswecker: gültiges Angebot (heute oder demnächst) unter dem Wunschpreis, noch nicht gemeldet
 export async function checkAlarm(env, it, deliverAlarm) {
   const t = today();
   const { results } = await env.DB.prepare("SELECT offer_id, shop, title, brand, price, old_price, amount, valid_from, valid_to FROM offers WHERE item_id = ? AND valid_to >= ? ORDER BY price").bind(it.id, t).all();
@@ -210,7 +206,7 @@ export function alarmMessage(name, hits) {
     " für " + eur(o.price) + (o.old_price && o.old_price > o.price ? " statt " + eur(o.old_price) : "") +
     (o.valid_from > today() ? ", ab " + dayText(o.valid_from) : ", bis " + dayText(o.valid_to));
   const body = hits.slice(0, 3).map(one).join("\n") + (hits.length > 3 ? "\nund " + (hits.length - 3) + " weitere" : "");
-  return { title: "Preisalarm: " + name + " ab " + eur(best.price), body, tag: "preisalarm-" + name, url: "/?angebote" };
+  return { title: "Preiswecker: " + name + " ab " + eur(best.price), body, tag: "preiswecker-" + name, url: "/?angebote" };
 }
 
 // Testlauf: settings.offers_probe = {"zip":"50354","queries":["Tomatenmark",…]} → Ergebnisse in offers_probe-Tabelle

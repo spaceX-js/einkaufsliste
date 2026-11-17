@@ -108,5 +108,6 @@ CREATE TABLE IF NOT EXISTS offer_watch (
   alarm        INTEGER NOT NULL DEFAULT 0,
   alarm_max    INTEGER,                   -- Cent; leer = jedes Angebot
   alarm_person TEXT NOT NULL DEFAULT '',
-  alarm_sent   TEXT NOT NULL DEFAULT ''   -- schon gemeldete Angebote
+  alarm_sent   TEXT NOT NULL DEFAULT '',  -- schon gemeldete Angebote
+  search       INTEGER NOT NULL DEFAULT 0 -- 1 = für diesen Artikel Angebote suchen
 );

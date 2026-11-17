@@ -1,4 +1,4 @@
-// Angebote, Ladenvergleich, Preisverlauf und Preisalarm.
+// Angebote, Ladenvergleich, Preisverlauf und Preiswecker.
 (function(){
 "use strict";
 const A = window.App, S = A.S, esc = A.esc, $ = A.$;
@@ -63,12 +63,14 @@ async function load(force){
 /* ---------- Hinweis in der Liste ---------- */
 function badge(id){
   if(!P.data) return "";
+  const W=(P.data.watch||{})[id]; if(!W || !(W.search||W.alarm)) return "";
+  const icons='<span class="ofi" title="'+(W.alarm?'Preiswecker an':'Angebote suchen an')+'">'+ICON_TAG+(W.alarm?ICON_BELL:'')+'</span>';
   const now=bestNow(id); const soon=!now && pick(offersOf(id).filter(o=>o.from>today()));
-  const o=now||soon; if(!o) return "";
+  const o=now||soon;
+  if(!o) return '<span class="ofb off">'+icons+(W.checkedAt?'kein Angebot':'wird gesucht …')+'</span>';
   const shops=new Set(offersOf(id).map(x=>x.shop)).size;
-  return '<span class="ofb">'+(soon?'ab '+esc(dayText(o.from).split(" ")[0])+': ':'Angebot: ')+esc(o.shop)+' '+eur(o.price)+(o.bio?' · Bio':'')+(shops>1?' · +'+(shops-1):'')+'</span>';
+  return '<span class="ofb">'+icons+(soon?'ab '+esc(dayText(o.from).split(" ")[0])+': ':'')+esc(o.shop)+' '+eur(o.price)+(o.bio?' · Bio':'')+(shops>1?' · +'+(shops-1):'')+'</span>';
 }
-
 /* ---------- Ansicht ---------- */
 function open(tab){ S.view="prices"; if(tab) P.tab=tab; window.scrollTo(0,0); draw(); load(true); }
 function head(){
@@ -91,33 +93,26 @@ function offerRow(o){
 function itemOffersCard(it, list, extra){
   const sorted=list.slice().sort((a,b)=>(a.from>today())-(b.from>today()) || knownVariant(b)-knownVariant(a) || byUnit(a,b));
   const best=pick(sorted.filter(isNow));
-  return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+' ⋯</span></button>'+
+  return '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(it.id)+'"><b>'+esc(it.name)+'</b><span>'+(extra||'')+(best?'bestes: '+esc(best.shop)+' '+(refText(best)||eur(best.price)):'')+'</span>'+A.PEN+'</button>'+
     sorted.slice(0,6).map(offerRow).join("")+(sorted.length>6?'<div class="small" style="padding:6px 14px 10px">und '+(sorted.length-6)+' weitere</div>':'')+'</div>';
 }
 function offersHtml(){
   const cfg=P.data.config, W=P.data.watch||{};
   let h='<div class="small" style="margin:0 4px 10px">Prospekt-Angebote für <b>'+esc(cfg.zip)+'</b>: '+(cfg.shops.length?cfg.shops.map(s=>esc(s)+(cfg.zipByShop[s]?' ('+esc(cfg.zipByShop[s])+')':'')).join(", "):'noch keine Geschäfte gewählt')+
     ' · <button class="linkbtn inl" data-pr="config">ändern</button></div>';
-  if(!cfg.shops.length) return h+'<div class="list"><div class="empty">Wähle die Geschäfte in eurer Nähe aus, dann sucht die App für alles auf eurer Liste nach Angeboten.<br><button class="btn" style="margin-top:12px" data-pr="config">Geschäfte auswählen</button></div></div>';
-  const openItems=S.items.filter(i=>!i.done);
-  const withOffers=openItems.filter(i=>offersOf(i.id).length);
-  const alarms=S.items.filter(i=>W[i.id] && W[i.id].alarm);
-  const nearStores=new Set(A.stores().filter(s=>(s.labels||[]).some(l=>cfg.shops.includes(l))).map(s=>s.id));
-  const checkable=openItems.filter(i=>nearStores.has(i.store));
-  const pending=checkable.filter(i=>!W[i.id] || !W[i.id].checkedAt).length;
-  h+='<button class="btn block" id="pr_refresh" data-pr="refresh"'+(P.refreshing?' disabled':'')+'>'+(P.refreshing?esc(P.refreshing):'Neue Angebote suchen')+'</button>';
-  h+='<div class="sec"><b>Auf eurer Liste · '+withOffers.length+'</b><span>'+checkable.length+' Sachen geprüft'+(pending?', '+pending+' noch nicht':'')+'</span></div>';
-  if(withOffers.length) h+=withOffers.sort((a,b)=>a.name.localeCompare(b.name,"de")).map(i=>itemOffersCard(i, offersOf(i.id))).join("");
-  else h+='<div class="list"><div class="empty">'+(pending?'Die App sucht gerade – alle paar Minuten kommen ein paar Sachen dazu.':'Für eure offenen Sachen gibt es gerade keine Angebote.')+'</div></div>';
-  if(alarms.length){
-    h+='<div class="sec"><b>Preisalarm · '+alarms.length+'</b></div>';
-    h+=alarms.map(i=>{ const w=W[i.id], l=offersOf(i.id).filter(o=>w.alarmMax==null || o.price<=w.alarmMax);
-      const lim=w.alarmMax!=null?'bis '+eur(w.alarmMax)+' · ':'';
-      return l.length ? itemOffersCard(i, l, lim) : '<div class="ofcard"><button class="ofh" data-pr="item" data-id="'+esc(i.id)+'"><b>'+esc(i.name)+'</b><span>'+lim+'noch kein Angebot ⋯</span></button></div>'; }).join("");
-  }
-  const none=checkable.filter(i=>W[i.id] && W[i.id].checkedAt && !offersOf(i.id).length);
-  if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+'</button>').join(", ")+'</div>';
-  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Jede Sache wird etwa alle 8 Stunden von selbst neu geprüft, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Suchen als“. Oben steht die Sorte, die ihr laut Kassenzettel schon gekauft habt („schon gekauft“), danach geht es nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
+  if(!cfg.shops.length) return h+'<div class="list"><div class="empty">Wähle die Geschäfte in eurer Nähe aus. Danach markierst du die Artikel, für die die App Angebote suchen soll.<br><button class="btn" style="margin-top:12px" data-pr="config">Geschäfte auswählen</button></div></div>';
+  const marked=S.items.filter(i=>W[i.id] && (W[i.id].search||W[i.id].alarm)).sort((a,b)=>(a.done-b.done) || a.name.localeCompare(b.name,"de"));
+  h+='<button class="btn block" id="pr_refresh" data-pr="refresh"'+(P.refreshing||!marked.length?' disabled':'')+'>'+(P.refreshing?esc(P.refreshing):'Neue Angebote suchen')+'</button>';
+  if(!marked.length) return h+'<div class="list"><div class="empty">Noch kein Artikel markiert.<br><span class="small">Tippe in der Liste beim Artikel auf den Stift und schalte <b>„Angebote suchen“</b> ein. Dann sucht die App nach genau diesem Artikel – so, wie er bei „Angebote suchen als“ steht.</span></div></div>';
+  const withOffers=marked.filter(i=>offersOf(i.id).length);
+  const pending=marked.filter(i=>!W[i.id].checkedAt).length;
+  h+='<div class="sec"><b>Markierte Artikel · '+marked.length+'</b><span>'+(pending?pending+' noch nicht gesucht':'alle gesucht')+'</span></div>';
+  const head=i=>{ const w=W[i.id]; return (w.alarm?'<span class="ofi">'+ICON_BELL+'</span>'+(w.alarmMax!=null?'bis '+eur(w.alarmMax)+' · ':''):'')+(i.done?'nicht auf der Liste · ':''); };
+  if(withOffers.length) h+=withOffers.map(i=>itemOffersCard(i, offersOf(i.id), head(i))).join("");
+  else h+='<div class="list"><div class="empty">'+(pending?'Die Suche läuft – das dauert ein paar Minuten.':'Für eure markierten Artikel gibt es gerade keine Angebote.')+'</div></div>';
+  const none=marked.filter(i=>W[i.id].checkedAt && !offersOf(i.id).length);
+  if(none.length) h+='<div class="small" style="margin:14px 4px 0"><b>Ohne Angebot:</b> '+none.map(i=>'<button class="linkbtn inl" data-pr="item" data-id="'+esc(i.id)+'">'+esc(i.name)+(W[i.id].query?' („'+esc(W[i.id].query)+'“)':'')+'</button>').join(", ")+'</div>';
+  h+='<div class="small" style="margin:14px 4px 0">Quelle: marktguru (Prospekte). Gesucht wird nur für markierte Artikel, etwa alle 8 Stunden von selbst, mit dem Knopf oben sofort. Passt ein Treffer nicht, tippe auf den Artikel und ändere „Angebote suchen als“. Oben steht die Sorte, die ihr laut Kassenzettel schon gekauft habt („schon gekauft“), danach geht es nach Grundpreis (je kg, Liter oder Stück). Bio ist gekennzeichnet.</div>';
   return h;
 }
 
@@ -217,7 +212,7 @@ function openConfig(){
   bind();
 }
 
-/* ---------- Im Bearbeiten-Dialog: Angebote, bezahlte Preise, Suchbegriff, Preisalarm ---------- */
+/* ---------- Im Bearbeiten-Dialog: Angebote, bezahlte Preise, Suchbegriff, Preiswecker ---------- */
 async function editSection(id, el){
   if(!el) return;
   if(!P.data) await load(true);
@@ -233,28 +228,34 @@ async function editSection(id, el){
   if(cur.length) h+='<div class="small" style="margin:0 0 5px">Angebote</div><div class="prices ofin">'+cur.slice(0,4).map(offerRow).join("")+'</div>';
   if(paid.length) h+='<div class="small" style="margin:10px 0 5px">Zuletzt bezahlt</div><div class="prices">'+paid.map((p,i)=>'<div class="prow'+(i===0&&paid.length>1?' best':'')+'"><span>'+esc(p.shop)+'<small>'+esc(shortDate(p.at))+(p.discount?' · mit Rabatt':'')+'</small></span><b>'+eur(val(p))+(p.unit==="kg"?'/kg':'')+'</b></div>').join("")+'</div>';
   if(hist.prices.length+hist.offers.length>=2) h+='<button class="linkbtn" id="pv_open">Preisverlauf ansehen</button>';
-  const auto=W.query?"":"";
-  h+='<div class="pset"><label class="f"><span>Angebote suchen als</span><input id="pv_q" maxlength="60" placeholder="'+esc(it.name)+'" value="'+esc(W.query||auto)+'"></label>'+
-    '<label class="rtick small2"><input type="checkbox" id="pv_al"'+(W.alarm?' checked':'')+'> Preisalarm: Nachricht bei Angebot</label>'+
-    '<div id="pv_maxw"'+(W.alarm?'':' hidden')+'><label class="f"><span>nur bis höchstens (€, leer = jedes Angebot)</span><input id="pv_max" inputmode="decimal" value="'+(W.alarmMax!=null?esc((W.alarmMax/100).toFixed(2).replace(".",",")):"")+'"></label></div>'+
-    (W.checkedAt?'<div class="small">Zuletzt gesucht: '+esc(new Date(W.checkedAt).toLocaleString("de-DE",{weekday:"short",hour:"2-digit",minute:"2-digit"}))+'</div>':'')+'</div>';
+  // Angebote suchen (nur für markierte Artikel) und Preiswecker
+  const on=!!(W.search||W.alarm);
+  const sw=(id,chk,title,sub)=>'<label class="sw'+(chk?' on':'')+'"><input type="checkbox" id="'+id+'"'+(chk?' checked':'')+'><span class="swt"><b>'+title+'</b><small>'+sub+'</small></span><span class="swst">'+(chk?'An':'Aus')+'</span><span class="swk"></span></label>';
+  h+='<div class="pset">'+sw("pv_on", on, ICON_TAG+' Angebote suchen', on?'Die App sucht in den Prospekten nach diesem Artikel':'Aus – für diesen Artikel wird nicht gesucht')+
+    (on?'<label class="f"><span>Angebote suchen als</span><input id="pv_q" maxlength="60" value="'+esc(W.query||it.name)+'"></label>'+
+      sw("pv_al", !!W.alarm, ICON_BELL+' Preiswecker', W.alarm?'Nachricht aufs Handy, sobald es ein Angebot gibt':'Zusätzlich eine Nachricht aufs Handy bei Angebot')+
+      (W.alarm?'<label class="f"><span>nur bis höchstens (€, leer = jedes Angebot)</span><input id="pv_max" inputmode="decimal" value="'+(W.alarmMax!=null?esc((W.alarmMax/100).toFixed(2).replace(".",",")):"")+'"></label>':'')+
+      '<div class="small">'+(W.checkedAt?'Zuletzt gesucht: '+esc(new Date(W.checkedAt).toLocaleString("de-DE",{weekday:"short",hour:"2-digit",minute:"2-digit"})):'Wird gleich gesucht')+'</div>':'')+'</div>';
   el.innerHTML=h;
   if($("pv_open")) $("pv_open").onclick=()=>openHistory(it, hist);
-  const save=async(extra)=>{
-    const q=$("pv_q").value.trim(), al=$("pv_al").checked, mx=$("pv_max").value.trim();
-    const max = mx ? Math.round(parseFloat(mx.replace(",","."))*100) : null;
-    if(mx && !(max>0)){ A.toast("Bitte einen Preis wie 1,49 eingeben"); return; }
+  const save=async(body, after)=>{
     try{
-      const r=await A.api("POST","/api/offers/watch",{itemId:id, query:q, alarm:al, alarmMax:max, person:S.me||""});
-      if(P.data){ P.data.watch=P.data.watch||{}; P.data.watch[id]=Object.assign({},W,{query:r.auto?"":r.query, alarm:al, alarmMax:max}); }
-      if(extra==="query"){ A.toast("Suche läuft …"); await A.api("POST","/api/offers/check",{itemId:id}).catch(e=>A.toast(e.message)); P.at=0; await load(true); if(document.body.contains(el)) editSection(id, el); }
-      else if(extra==="alarm") A.toast(al?"Preisalarm an"+(S.pushOn?"":" – Benachrichtigungen in den Einstellungen einschalten"):"Preisalarm aus");
+      const r=await A.api("POST","/api/offers/watch",Object.assign({itemId:id, person:S.me||""},body));
+      if(P.data){ P.data.watch=P.data.watch||{}; P.data.watch[id]=Object.assign({},W,{query:r.auto?"":r.query, search:r.search, alarm:r.alarm, alarmMax:body.alarmMax!==undefined?body.alarmMax:W.alarmMax}); }
+      if(after==="search" && r.search){ A.toast("Suche läuft …"); await A.api("POST","/api/offers/check",{itemId:id}).catch(e=>A.toast(e.message)); P.at=0; await load(true); }
+      else if(after==="alarm") A.toast(r.alarm?"Preiswecker an"+(S.pushOn?"":" – Benachrichtigungen in den Einstellungen einschalten"):"Preiswecker aus");
+      else if(after==="off"){ A.toast("Angebote suchen aus"); P.at=0; await load(true); }
+      if(document.body.contains(el)) editSection(id, el);
     }catch(e){ A.toast(e.message); }
   };
-  $("pv_q").addEventListener("change",()=>save("query"));
-  $("pv_al").addEventListener("change",()=>{ $("pv_maxw").hidden=!$("pv_al").checked; save("alarm"); });
-  $("pv_max").addEventListener("change",()=>save());
+  $("pv_on").addEventListener("change",e=>{ if(e.target.checked) save({search:true, query:it.name}, "search"); else save({search:false, alarm:false}, "off"); });
+  if($("pv_q")) $("pv_q").addEventListener("change",e=>{ const q=e.target.value.trim()||it.name; save({query:q}, "search"); });
+  if($("pv_al")) $("pv_al").addEventListener("change",e=>save({alarm:e.target.checked}, "alarm"));
+  if($("pv_max")) $("pv_max").addEventListener("change",e=>{ const mx=e.target.value.trim(); const max = mx ? Math.round(parseFloat(mx.replace(",","."))*100) : null;
+    if(mx && !(max>0)){ A.toast("Bitte einen Preis wie 1,49 eingeben"); return; } save({alarmMax:max}); });
 }
+const ICON_TAG='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg>';
+const ICON_BELL='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>';
 
 /* ---------- Preisverlauf ---------- */
 // feste Farbe je Geschäft (Reihenfolge der Labels), damit ein Geschäft immer gleich aussieht

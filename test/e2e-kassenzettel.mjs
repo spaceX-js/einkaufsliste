@@ -150,7 +150,7 @@ try {
   ok(/Penny/.test(await page.locator(".prow").first().textContent()) && /1,39 €/.test(await page.locator(".prow").first().textContent()), "Preis im Bearbeiten-Dialog: " + await page.locator(".prow").first().textContent());
   await page.screenshot({ path: "/tmp/kz-7.png" });
 
-  /* ---------- Angebote, Ladenvergleich, Preisverlauf, Preisalarm, Ausgaben ---------- */
+  /* ---------- Angebote, Ladenvergleich, Preisverlauf, Preiswecker, Ausgaben ---------- */
   const d = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   db.prepare("INSERT INTO settings (key,value) VALUES ('offers_config',?)").run(JSON.stringify({ zip: "50354", shops: ["Lidl", "Penny"], zipByShop: {} }));
   db.prepare("UPDATE items SET done=0, added_at=? WHERE id IN ('birne','pet','tm','hafer')").run(new Date().toISOString());
@@ -167,12 +167,13 @@ try {
   io.run("skyr", "o6", "Penny", "Skyr", "", 99, 149, 198, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("tm", "o5", "Lidl", "Tomatenmark Großpackung", "", 129, null, 258, "kg", "500 g", 0, d(-1), d(4), "x");
   io.run("pet", "o0", "Penny", "Petersilie", "", 79, null, null, "", "", 0, "2026-10-01", "2026-10-05", "x");
-  db.prepare("INSERT INTO offer_watch (item_id,query,checked_at) VALUES ('pet','',?),('tm','',?),('birne','',?)").run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  db.prepare("INSERT INTO offer_watch (item_id,query,checked_at,search) VALUES ('pet','',?,1),('tm','',?,1),('birne','',?,1),('hafer','',?,1)").run(nowIso, nowIso, nowIso, nowIso);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(4500);   // Liste aktualisiert sich
   await page.evaluate(() => window.Prices.load(true)); await page.waitForTimeout(500);
   const rowTm = page.locator(".row", { hasText: "Tomatenmark" });
-  ok(/Angebot: Lidl 1,29 €/.test(await rowTm.textContent()), "Hinweis in der Liste (bester Grundpreis): " + (await rowTm.locator(".d").textContent()));
+  ok(/Lidl 1,29 €/.test(await rowTm.textContent()) && (await rowTm.locator(".ofi svg").count()) === 1, "Hinweis in der Liste mit Markierung (bester Grundpreis): " + (await rowTm.locator(".d").textContent()));
   await page.screenshot({ path: "/tmp/pr-1.png" });
   await page.click("[data-act=prices]");
   await page.waitForSelector(".ofcard");
@@ -202,17 +203,20 @@ try {
   await page.click(".ofcard .ofh >> text=Petersilie");
   await page.waitForSelector("#pv_q");
   ok((await page.locator("#e_prices .ofr").count()) === 2 && (await page.locator("#e_prices .prow").count()) === 1, "Bearbeiten: Angebot und bezahlter Preis");
-  await page.check("#pv_al"); await page.waitForTimeout(300);
-  await page.fill("#pv_max", "0,99"); await page.press("#pv_max", "Tab"); await page.waitForTimeout(300);
+  ok(await page.locator("label.sw.on", { hasText: "Angebote suchen" }).count() === 1 && /An/.test(await page.locator("label.sw.on .swst").first().textContent()), "Schalter „Angebote suchen“ sichtbar an");
+  await page.click("label.sw:has(#pv_al)"); await page.waitForSelector("#pv_max");
+  ok(await page.locator("label.sw.on", { hasText: "Preiswecker" }).count() === 1, "Preiswecker sichtbar an");
+  await page.fill("#pv_max", "0,99"); await page.press("#pv_max", "Tab"); await page.waitForTimeout(400);
+  await page.screenshot({ path: "/tmp/pr-dialog.png", fullPage: true });
   const wr = db.prepare("SELECT alarm, alarm_max, alarm_person FROM offer_watch WHERE item_id='pet'").get();
-  ok(wr.alarm === 1 && wr.alarm_max === 99 && wr.alarm_person === "Jonas", "Preisalarm gespeichert");
+  ok(wr.alarm === 1 && wr.alarm_max === 99 && wr.alarm_person === "Jonas", "Preiswecker gespeichert");
   await page.click("#pv_open");
   await page.waitForSelector(".pvsvg");
   ok((await page.locator(".pvsvg circle").count()) === 1 && (await page.locator(".pvsvg line[stroke-width='4']").count()) === 3, "Preisverlauf: 1 Bon, 3 Angebote");
   ok((await page.locator(".pvleg span").count()) === 2, "Legende mit 2 Geschäften");
   await page.screenshot({ path: "/tmp/pr-4.png" });
   await page.click("#pv_x");
-  ok((await page.locator(".sec", { hasText: "Preisalarm" }).count()) === 1, "Preisalarm-Abschnitt");
+  ok((await page.locator(".ofcard", { hasText: "Petersilie" }).locator(".ofh .ofi").count()) === 1, "Preiswecker-Glocke im Kärtchen");
   await page.click("[data-pr=close]");
   // Ausgaben in der Statistik
   await page.click("[data-act=stats]");

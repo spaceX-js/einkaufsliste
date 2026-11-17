@@ -526,7 +526,7 @@ test("Kassenzettel: ungültige Angaben und Foto ohne Bilderkennung", async () =>
   assert.equal((await call(env, "/api/receipts")).status, 401);
 });
 
-/* ---------- Angebote, Preisalarm, Ladenvergleich ---------- */
+/* ---------- Angebote, Preiswecker, Ladenvergleich ---------- */
 import { queryFor, offerMatches, normalizeOffer, refreshOffers, alarmMessage } from "../src/offers.js";
 
 const inDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
@@ -554,7 +554,7 @@ test("Angebote: Umwandlung der marktguru-Daten", () => {
   assert.equal(normalizeOffer({ ...mgOffer(10, "Lidl", "Zahnpasta", 4.99, { unit: "l", vol: 0.075 }), quantity: 3 }, ["Lidl"]).amount, "3 × 75 ml");
 });
 
-test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preisalarm, Ladenvergleich", async () => {
+test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preiswecker, Ladenvergleich", async () => {
   const env = await setup(); const ck = await login(env);
   await post(env, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Lidl", "Edeka", "Penny"] }, { id: "drogerie", name: "Drogerie", labels: ["dm"] }] });
   await post(env, ck, "/api/item", { id: "tm", name: "Tomatenmark", store: "supermarkt", done: false, addedAt: new Date().toISOString() });
@@ -579,32 +579,41 @@ test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preisalarm, Ladenvergleich"
   assert.equal((await post(env, ck, "/api/offers/config", { zip: "123" })).status, 400);
   let res = await post(env, ck, "/api/offers/config", { zip: "50354", shops: ["Lidl", "Edeka", "Penny"], zipByShop: { Edeka: "50858", dm: "11111" } });
   assert.deepEqual((await res.json()).config, { zip: "50354", shops: ["Lidl", "Edeka", "Penny"], zipByShop: { Edeka: "50858" } });
-  // Preisalarm für Kaffee (steht nicht auf der Liste): nur bis 4,00 €
+  // Preiswecker für Kaffee (steht nicht auf der Liste): nur bis 4,00 €
   assert.equal((await post(env, ck, "/api/offers/watch", { itemId: "kaffee", alarm: true, alarmMax: 0 })).status, 400);
   await post(env, ck, "/api/offers/watch", { itemId: "kaffee", alarm: true, alarmMax: 400, person: "Jonas" });
+  // nur markierte Artikel werden gesucht: Tomatenmark und Cola markieren, Zahnpasta nicht
+  await post(env, ck, "/api/offers/watch", { itemId: "tm", search: true, query: "Tomatenmark" });
+  await post(env, ck, "/api/offers/watch", { itemId: "cola", search: true });
   const sent = [];
   const out = await refreshOffers(env, msg => { sent.push(msg); });
-  // geprüft: Tomatenmark, Cola (offen im Supermarkt) und Kaffee (Alarm) – nicht Zahnpasta (dm nicht in der Nähe)
+  // geprüft: Tomatenmark, Cola (markiert) und Kaffee (Preiswecker) – nicht Zahnpasta (nicht markiert)
   assert.deepEqual(out.map(o => o.id).sort(), ["cola", "kaffee", "tm"]);
-  // Gekauftes, das gerade nicht auf der Liste steht, wird nicht geprüft
-  await post(env, ck, "/api/item", { id: "oft", name: "Kaffee", store: "supermarkt", done: true, doneAt: new Date().toISOString(), buyCount: 3 });
+  // nicht markiert = keine Suche
+  await post(env, ck, "/api/item", { id: "oft", name: "Kaffee", store: "supermarkt", done: false, addedAt: new Date().toISOString() });
   assert.deepEqual(await refreshOffers(env, null), []);
+  assert.equal((await post(env, ck, "/api/offers/check", { itemId: "oft" })).status, 400);
+  // Preiswecker schaltet die Suche mit ein, Suche aus schaltet beides aus
+  let wr = await (await post(env, ck, "/api/offers/watch", { itemId: "oft", alarm: true })).json();
+  assert.equal(wr.search, true);
+  wr = await (await post(env, ck, "/api/offers/watch", { itemId: "oft", search: false, alarm: false })).json();
+  assert.deepEqual([wr.search, wr.alarm], [false, false]);
   assert.ok(calls.some(c => c.includes("q=Cola+Dosen")));
   assert.ok(calls.some(c => c.includes("q=Tomatenmark") && c.includes("zipCode=50858")));
   const st = await (await get(env, ck, "/api/offers")).json();
   const tm = st.offers.filter(o => o.itemId === "tm").map(o => [o.id, o.shop, o.price, o.bio]).sort();
   // Lidl normal + Bio, Edeka nur aus 50858 (der Edeka-Treffer aus 50354 zählt nicht), kein „Tomaten stückig“, kein Handelshof
   assert.deepEqual(tm, [["1", "Lidl", 59, false], ["2", "Lidl", 79, true], ["6", "Edeka", 69, false]]);
-  assert.equal(sent.length, 1); assert.equal(sent[0].title, "Preisalarm: Kaffee ab 3,99 €"); assert.match(sent[0].body, /^Penny: Kaffee Crema \(1 kg\) für 3,99 €, bis /);
+  assert.equal(sent.length, 1); assert.equal(sent[0].title, "Preiswecker: Kaffee ab 3,99 €"); assert.match(sent[0].body, /^Penny: Kaffee Crema \(1 kg\) für 3,99 €, bis /);
   // zweiter Lauf: alles frisch geprüft → nichts zu tun, kein zweiter Alarm
   assert.deepEqual(await refreshOffers(env, msg => sent.push(msg)), []);
   assert.equal(sent.length, 1);
   // eigener Suchbegriff → wird sofort neu gesucht
   res = await post(env, ck, "/api/offers/watch", { itemId: "cola", query: "Coca Cola" });
-  assert.deepEqual(await res.json(), { ok: true, query: "Coca Cola", auto: false });
+  assert.deepEqual(await res.json(), { ok: true, query: "Coca Cola", auto: false, search: true, alarm: false });
   const w = await (await get(env, ck, "/api/offers")).json();
   assert.equal(w.watch.cola.query, "Coca Cola"); assert.equal(w.watch.cola.checkedAt, null);
-  assert.equal(w.watch.tm.query, "");
+  assert.equal(w.watch.tm.query, ""); assert.equal(w.watch.tm.search, true);
   // „Jetzt prüfen“
   res = await post(env, ck, "/api/offers/check", { itemId: "cola" });
   assert.equal(res.status, 200); assert.ok(calls.some(c => c.includes("q=Coca+Cola")));
@@ -622,10 +631,10 @@ test("Angebote prüfen (Cron), Anzeige, Suchbegriff, Preisalarm, Ladenvergleich"
   assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM offers WHERE item_id = 'tm'").get().n, 0);
 });
 
-test("Preisalarm-Nachricht", () => {
+test("Preiswecker-Nachricht", () => {
   const m = alarmMessage("Butter", [{ shop: "Lidl", title: "Kerrygold Butter", brand: "Kerrygold", price: 199, old_price: 299, amount: "250 g", valid_from: "2026-01-01", valid_to: "2099-01-03" },
     { shop: "Penny", title: "Butter", brand: "", price: 219, old_price: null, amount: "", valid_from: "2099-01-01", valid_to: "2099-01-07" }]);
-  assert.equal(m.title, "Preisalarm: Butter ab 1,99 €");
+  assert.equal(m.title, "Preiswecker: Butter ab 1,99 €");
   assert.match(m.body, /^Lidl: Kerrygold Butter \(250 g\) für 1,99 € statt 2,99 €, bis /);
   assert.match(m.body, /\nPenny: Butter für 2,19 €, ab /);
 });
@@ -640,6 +649,7 @@ test("Angebote: Grundpreis selbst berechnen und „Neue Angebote suchen“ in Po
   const env = await setup(); const ck = await login(env);
   await post(env, ck, "/api/stores", { list: [{ id: "supermarkt", name: "Supermarkt", labels: ["Lidl"] }] });
   for (let i = 0; i < 11; i++) await post(env, ck, "/api/item", { id: "a" + i, name: "Artikel" + i, store: "supermarkt", done: false, addedAt: new Date().toISOString() });
+  for (let i = 0; i < 11; i++) await post(env, ck, "/api/offers/watch", { itemId: "a" + i, search: true });
   assert.equal((await post(env, ck, "/api/offers/refresh", { start: true })).status, 400);   // noch keine Geschäfte
   await post(env, ck, "/api/offers/config", { zip: "50354", shops: ["Lidl"] });
   let n = 0;
