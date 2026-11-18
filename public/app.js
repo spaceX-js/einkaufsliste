@@ -118,10 +118,15 @@ function addItem(name, store){
     pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops, prio})); render();
   }
 }
-// Knöpfe „Dringend“ / „Vorrat“ unter dem Eingabefeld
-function prioBarHtml(){ return '<span class="small">Kennzeichen:</span>'+[["dringend","Dringend"],["vorrat","Vorrat"]].map(([k,l])=>'<button type="button" data-addprio="'+k+'" class="pc-'+k+(S.addPrio===k?' on':'')+'">'+l+'</button>').join("")+
-  (S.addPrio?'<span class="small">gilt für den nächsten Eintrag</span>':''); }
-function renderPrioBar(){ const el=$("addprio"); if(el) el.innerHTML=prioBarHtml(); }
+// Kleine Knöpfe „Dringend“ (!) und „Vorrat“ (Kiste) zwischen Eingabefeld und +
+const ICO_URG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v9"/><path d="M12 19h.01"/></svg>';
+const ICO_STOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4z"/><path d="M3 8v8l9 4 9-4V8"/><path d="M12 12v8"/></svg>';
+function prioBtns(){ return [["dringend",ICO_URG,"Dringend"],["vorrat",ICO_STOCK,"Vorrat"]].map(([k,ic,l])=>'<button type="button" class="pb pc-'+k+(S.addPrio===k?' on':'')+'" data-addprio="'+k+'" aria-label="'+l+'" aria-pressed="'+(S.addPrio===k)+'" title="'+l+'">'+ic+'</button>').join(""); }
+function renderPrioBar(){
+  document.querySelectorAll("form.add [data-addprio]").forEach(b=>{ const on=S.addPrio===b.dataset.addprio; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on); });
+  const hint=$("addprio"); if(hint) hint.innerHTML=S.addPrio?'<span class="prio p-'+S.addPrio+'">'+PRIO[S.addPrio]+'</span> für den nächsten Eintrag':'';
+  const q=$("q"); if(q) q.placeholder="Was brauchen wir bei "+storeName(S.cur)+"?";
+}
 function toggle(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
   const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0, prio:it.prio||""};
@@ -172,19 +177,18 @@ function renderHead(light){
   if(light && $("storebar")){
     // Nur Läden, Platzhalter und Status aktualisieren, damit das Eingabefeld (und die Tastatur) stehen bleibt
     $("storebar").innerHTML=storeBtns();
-    const q=$("q"); if(q) q.placeholder="Was brauchen wir bei "+storeName(S.cur)+"?";
     $("net").textContent = S.online ? "" : "offline";
     renderPrioBar(); renderSugg(); return;
   }
   h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="prices" aria-label="Angebote und Preise">'+TAG+'</button><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
-    '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
-    '<div class="addprio" id="addprio">'+prioBarHtml()+'</div>'+
+    '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'">'+prioBtns()+'<button type="submit" class="plus" aria-label="Hinzufügen">+</button></form>'+
+    '<div class="addprio small" id="addprio"></div>'+
     '<div class="sugg" id="sugg"></div>';
   const q=$("q");
   q.addEventListener("input",()=>{ S.q=q.value; renderSugg(); });
   $("addf").addEventListener("submit",e=>{ e.preventDefault(); const v=q.value; S.q=""; q.value=""; addItem(v); renderSugg(); q.focus(); });
-  renderSugg();
+  renderPrioBar(); renderSugg();
   const on=h.querySelector(".store.on"); if(on) on.scrollIntoView({inline:"nearest",block:"nearest"});
 }
 // Autovervollständigung beim Eintippen: alles, was schon einmal angelegt wurde (alle Läden)
@@ -517,6 +521,8 @@ document.addEventListener("click",e=>{
 });
 
 /* ---------- Ereignisse ---------- */
+// Kennzeichen-Knöpfe neben dem Eingabefeld: Fokus (und Tastatur) im Feld lassen
+["mousedown","pointerdown"].forEach(ev=>document.addEventListener(ev,e=>{ if(e.target.closest("form.add .pb")) e.preventDefault(); }));
 let pressT=null, pressed=false;
 document.addEventListener("pointerdown",e=>{
   const b=e.target.closest("[data-readd]"); if(!b) return;
@@ -529,7 +535,7 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
   const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop],[data-addprio]"); if(!t) return;
-  if(t.dataset.addprio){ S.addPrio = S.addPrio===t.dataset.addprio ? "" : t.dataset.addprio; renderPrioBar(); const q=$("q"); if(q && q.value) q.focus(); return; }
+  if(t.dataset.addprio){ S.addPrio = S.addPrio===t.dataset.addprio ? "" : t.dataset.addprio; renderPrioBar(); return; }
   if(t.dataset.drop){ dropItem(t.dataset.drop); return; }
   if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }

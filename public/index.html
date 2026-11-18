@@ -50,8 +50,13 @@ h1{font-size:26px;margin:0;letter-spacing:-.02em}
 form.add{display:flex;gap:8px;margin-top:10px}
 form.add input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;-webkit-appearance:none}
 form.add input:focus{outline:2px solid var(--acc);outline-offset:-1px}
-form.add button{border:0;border-radius:12px;background:var(--acc);color:#fff;font-weight:700;font-size:22px;width:48px;cursor:pointer}
-@media (prefers-color-scheme: dark){ form.add button{color:#10201b} }
+form.add button.plus{border:0;border-radius:12px;background:var(--acc);color:#fff;font-weight:700;font-size:22px;width:48px;cursor:pointer}
+@media (prefers-color-scheme: dark){ form.add button.plus{color:#10201b} }
+form.add{gap:6px}
+form.add .pb{flex:none;width:36px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--mute);display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+form.add .pb svg{width:18px;height:18px}
+form.add .pc-dringend.on{background:#b3261e;border-color:#b3261e;color:#fff}
+form.add .pc-vorrat.on{background:#2a5ea8;border-color:#2a5ea8;color:#fff}
 .sugg{margin-top:6px}
 .ac{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.08)}
 .ac button{display:flex;width:100%;align-items:baseline;justify-content:space-between;gap:10px;background:none;border:0;border-top:1px solid var(--line);padding:11px 14px;font-size:16px;text-align:left;cursor:pointer;color:var(--ink)}
@@ -314,10 +319,9 @@ div.rline{cursor:default}
 .grp.urg{color:#b3261e}
 @media (prefers-color-scheme: dark){ .grp.urg{color:#ffb4ab} }
 .list.urgl{border-color:#e9a39b}
-.addprio{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
-.addprio button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 12px;font-size:14px;font-weight:600;cursor:pointer;color:var(--mute)}
-.addprio .pc-dringend.on{background:#b3261e;border-color:#b3261e;color:#fff}
-.addprio .pc-vorrat.on{background:#2a5ea8;border-color:#2a5ea8;color:#fff}
+.addprio{margin:6px 4px 0}
+.addprio:empty{display:none}
+.addprio .prio{margin:0 2px 0 0}
 #e_pr .pc-dringend.on{background:#b3261e;border-color:#b3261e;color:#fff}
 #e_pr .pc-vorrat.on{background:#2a5ea8;border-color:#2a5ea8;color:#fff}
 #testbadge{position:sticky;top:0;z-index:30;background:#b3261e;color:#fff;text-align:center;font-size:12px;font-weight:700;letter-spacing:.04em;padding:calc(4px + env(safe-area-inset-top)) 8px 4px}
