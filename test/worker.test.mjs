@@ -464,6 +464,8 @@ test("Kassenzettel lesen: Lidl, dm und Rossmann", () => {
   assert.equal(ro.total, 940); assert.equal(ro.sub, 1040); assert.equal(ro.sum, 1040);
   assert.deepEqual(ro.lines.map(x => [x.ean, x.raw, x.price]), [["4068134245397", "BABYDR. PFLAUME-BA", 45], ["4001638590464", "WELEDA HYDRATING B", 995]]);
   assert.equal(rawKey("BIO  KOERN. FRISCH"), "bio koern.frisch");
+  const ik = parseReceipt("IKEA Deutschland GmbH & Co. KG\nEinrichtungshaus Köln-Godorf\nKALLAX Regal 49,99 A\nFRAKTA Tasche 0,99 A\nSumme 50,98\n18.11.2026 17:42");
+  assert.deepEqual([ik.shop, ik.total, ik.lines.length, ik.at], ["IKEA", 5098, 2, "2026-11-18T17:42"]);
 });
 
 test("Kassenzettel speichern: neue Artikel, Abhaken, gelernte Zuordnung, Preise, doppelt", async () => {

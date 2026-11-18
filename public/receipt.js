@@ -14,9 +14,13 @@ function nowLocal(){ const d=new Date(), p=n=>String(n).padStart(2,"0"); return 
 const qtyText = l => l.unit==="kg" ? (String(l.qty).replace(".",","))+" kg × "+eur(l.unitPrice)+"/kg" : (l.qty>1 ? l.qty+" × "+eur(l.unitPrice) : "");
 const itemById = id => S.items.find(i=>i.id===id);
 // alle Geschäfte (Labels) aus den Läden, z. B. Lidl, Rewe, dm
-function allShops(extra){ const out=[]; A.stores().forEach(s=>(s.labels||[]).forEach(l=>{ if(!out.some(x=>x.toLowerCase()===l.toLowerCase())) out.push(l); }));
+// Geschäfte zur Auswahl: alle Labels, dazu Läden ohne Labels selbst (z. B. „IKEA“) und eigene Eingaben
+function allShops(extra){ const out=[]; const add=l=>{ if(l && !out.some(x=>x.toLowerCase()===String(l).toLowerCase())) out.push(l); };
+  A.stores().forEach(s=>{ const ls=s.labels||[]; if(ls.length) ls.forEach(add); else add(s.name); });
   if(extra && !out.some(x=>x.toLowerCase()===extra.toLowerCase())) out.unshift(extra); return out; }
-function storeForShop(shop){ const s=A.stores().find(st=>(st.labels||[]).some(l=>l.toLowerCase()===String(shop||"").toLowerCase())); return s ? s.id : (S.cur||A.stores()[0].id); }
+function storeForShop(shop){ const k=String(shop||"").toLowerCase();
+  const s=A.stores().find(st=>(st.labels||[]).some(l=>l.toLowerCase()===k)) || A.stores().find(st=>st.name.toLowerCase()===k);
+  return s ? s.id : (S.cur||A.stores()[0].id); }
 function shopLabel(shop){ return allShops().find(l=>l.toLowerCase()===String(shop||"").toLowerCase()) || shop; }
 
 /* ---------- Zuordnung Bon-Text → Artikel ---------- */
@@ -171,7 +175,8 @@ function drawReview(){
   const unassigned=d.lines.filter(l=>l.kind==="item" && !l.itemId && !l.newName && !l.ignore).length;
   const suggs=d.lines.filter(l=>l.sugg).length;
   let h='<div class="card-s">'+
-    '<div class="small" style="margin-bottom:6px">Geschäft'+(d.shop?'':' – bitte auswählen')+'</div><div class="chips" id="rc_shops">'+allShops(d.shop).map(l=>'<button data-rc="shop" data-k="'+esc(l)+'" class="'+(l===d.shop?'on':'')+'">'+esc(l)+'</button>').join("")+'</div>'+
+    '<div class="small" style="margin-bottom:6px">Geschäft'+(d.shop?'':' – bitte auswählen')+'</div><div class="chips" id="rc_shops">'+allShops(d.shop).map(l=>'<button data-rc="shop" data-k="'+esc(l)+'" class="'+(l===d.shop?'on':'')+'">'+esc(l)+'</button>').join("")+
+      '<button data-rc="othershop" class="dash">＋ Anderes</button></div>'+
     '<div class="small" style="margin:12px 0 6px">Neue Artikel kommen nach</div><div class="chips">'+A.stores().map(s=>'<button data-rc="store" data-k="'+esc(s.id)+'" class="'+(s.id===d.store?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div>'+
     '<div class="rgrid"><label class="f"><span>Datum</span><input type="datetime-local" id="rc_at" value="'+esc(d.at)+'"></label>'+
     '<label class="f"><span>Bezahlt €</span><input id="rc_total" inputmode="decimal" value="'+esc((d.total/100).toFixed(2).replace(".",","))+'"></label></div>'+
@@ -269,8 +274,10 @@ document.addEventListener("click",e=>{
   if(k==="close") A.close();
   else if(k==="list"){ R.mode="list"; draw(); loadList(); }
   else if(k==="cancel"){ if(R.mode==="review" && !b.dataset.sure && !confirm("Diesen Kassenzettel verwerfen?")) return; R.draft=null; R.mode="list"; draw(); }
-  else if(k==="shop"){ d.shop=b.dataset.k; const st=storeForShop(d.shop); if(A.stores().some(s=>(s.labels||[]).some(l=>l.toLowerCase()===d.shop.toLowerCase()))) d.store=st; drawReview(); }
+  else if(k==="shop"){ d.shop=b.dataset.k; const k2=d.shop.toLowerCase(); if(A.stores().some(s=>s.name.toLowerCase()===k2||(s.labels||[]).some(l=>l.toLowerCase()===k2))) d.store=storeForShop(d.shop); drawReview(); }
   else if(k==="store"){ d.store=b.dataset.k; drawReview(); }
+  else if(k==="othershop"){ const n=(prompt("Name des Geschäfts, z. B. Hornbach")||"").replace(/[<>|,]/g,"").trim().slice(0,30);
+    if(n){ d.shop=allShops().find(l=>l.toLowerCase()===n.toLowerCase())||n; if(A.stores().some(s=>s.name.toLowerCase()===n.toLowerCase()||(s.labels||[]).some(l=>l.toLowerCase()===n.toLowerCase()))) d.store=storeForShop(n); drawReview(); } }
   else if(k==="line") openLine(+b.dataset.ix);
   else if(k==="save") save(b);
   else if(k==="show") showDetail(b.dataset.id);

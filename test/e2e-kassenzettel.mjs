@@ -28,7 +28,7 @@ const AI = { run: async () => { aiCalls++; await new Promise(r => setTimeout(r, 
 
 const salt = "00112233445566778899aabbccddeeff";
 db.prepare("INSERT INTO settings (key,value) VALUES ('pw_salt',?),('pw_hash',?),('session_secret',?),('rev','1'),('stores',?)").run(salt, await pbkdf2("geheim123", salt), "cd".repeat(32),
-  JSON.stringify([{ id: "supermarkt", name: "Supermarkt", labels: ["Lidl", "Penny", "Rewe"] }, { id: "drogerie", name: "Drogerie", labels: ["dm"] }]));
+  JSON.stringify([{ id: "supermarkt", name: "Supermarkt", labels: ["Lidl", "Penny", "Rewe"] }, { id: "drogerie", name: "Drogerie", labels: ["dm"] }, { id: "ikea", name: "IKEA" }]));
 const ins = db.prepare("INSERT INTO items (id,name,store,note,done,added_at,done_at,updated_at,buy_count,added_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
 [["birne", "Birnen", 0], ["skyr", "Skyr", 1], ["hafer", "Haferdrink", 1], ["tom", "Passierte Tomaten", 1], ["tm", "Tomatenmark", 1], ["pet", "Petersilie", 0], ["kiwi", "Gold Kiwis", 1], ["salat", "Salat", 1]]
   .forEach(([id, n, d], i) => ins.run(id, n, "supermarkt", "", d, d ? null : "2026-11-14T0" + i + ":00:00Z", d ? "2026-11-13T0" + i + ":00:00Z" : null, "x", 2, ""));
@@ -82,6 +82,10 @@ try {
   const raws = await page.locator(".rline .rraw").allTextContents();
   ok(raws.join("|") === "BIO KOERN.FRISCH|Birnen lose|Petersilie glatt|HAFERDR. BARISTA|SKYR|Passierte Tomate|PENNY Tasche", "Zeilen aus dem PDF: " + raws.join("|"));
   ok((await page.locator("#rc_shops button.on").textContent()) === "Penny", "Geschäft Penny erkannt");
+  ok((await page.locator("#rc_shops button", { hasText: "IKEA" }).count()) === 1 && (await page.locator("#rc_shops [data-rc=othershop]").count()) === 1, "IKEA (Laden ohne Labels) und „Anderes“ wählbar");
+  await page.click("#rc_shops button:has-text('IKEA')");
+  ok((await page.locator(".chips button.on", { hasText: "IKEA" }).count()) === 2, "IKEA gewählt → neue Artikel kommen nach IKEA");
+  await page.click("#rc_shops button:has-text('Penny')");
   ok((await page.inputValue("#rc_at")) === "2026-11-03T15:48", "Datum erkannt");
   ok((await page.locator(".okc").count()) === 1, "Summe passt");
   const asg = await page.locator(".rline .asg").allTextContents();

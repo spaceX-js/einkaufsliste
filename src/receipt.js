@@ -16,6 +16,12 @@ const SHOPS = [
   ["Edeka", /\bedeka\b/i],
   ["Rewe", /\brewe\b/i],
   ["Denns", /\bdenns\b/i],
+  ["IKEA", /\bikea\b/i],
+  ["Fressnapf", /\bfressnapf\b/i],
+  ["Obi", /\bobi\s+(markt|bau|gmbh)|\bobi\.de\b/i],
+  ["Bauhaus", /\bbauhaus\b/i],
+  ["Hornbach", /\bhornbach\b/i],
+  ["toom", /\btoom\b/i],
   ["Alnatura", /\balnatura\s+(produktions|super\s*natur|markt)/i],
   ["Müller", /\bm[üu]ller\s+(handels|drogerie)/i]
 ];
