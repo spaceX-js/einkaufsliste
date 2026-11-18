@@ -215,6 +215,17 @@ ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "A
   ok(db.prepare("SELECT prio, done FROM items WHERE id='b'").get().prio === "" && (await page.locator(".grp.urg").count()) === 0, "abgehakt → dringend weg");
   await page.click(".row:has-text('Eier') .drop"); await page.waitForTimeout(500);
   ok(db.prepare("SELECT prio FROM items WHERE name='Eier'").get().prio === "", "von der Liste genommen → Vorrat weg");
+  // beim Eintragen: Knopf wählen, dann eintippen
+  await page.click("[data-addprio=dringend]");
+  ok((await page.locator("[data-addprio=dringend].on").count()) === 1, "Knopf Dringend aktiv");
+  await page.fill("#q", "Mehl"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
+  ok(db.prepare("SELECT prio FROM items WHERE name='Mehl'").get().prio === "dringend" && (await page.locator("[data-addprio].on").count()) === 0, "neuer Eintrag dringend, Knopf danach wieder aus");
+  await page.click("[data-addprio=vorrat]"); await page.fill("#q", "kart"); await page.click("#sugg .ac button"); await page.waitForTimeout(400);
+  ok(db.prepare("SELECT prio FROM items WHERE id='f'").get().prio === "vorrat", "Vorrat über die Autovervollständigung (steht schon drauf → Kennzeichen gesetzt)");
+  await page.click("[data-addprio=vorrat]"); await page.click("[data-addprio=vorrat]");
+  ok((await page.locator("[data-addprio].on").count()) === 0, "Knopf lässt sich wieder abwählen");
+  await page.click("[data-addprio=dringend]");
+  await page.screenshot({ path: "/tmp/e2e-addprio.png" });
 }
 
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));

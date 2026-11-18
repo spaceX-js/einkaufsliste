@@ -100,17 +100,28 @@ function addItem(name, store){
   name=String(name||"").trim(); if(!name) return;
   store=store||S.cur;
   const sp=splitShop(name, store); name=sp.name;
+  // Kennzeichen aus den Knöpfen unter dem Eingabefeld (gilt für diesen einen Eintrag)
+  const prio=S.addPrio||""; S.addPrio=""; renderPrioBar();
   const ex = S.items.find(i=>i.store===store && norm(i.name)===norm(name));
   if(ex){
     const merged=[...new Set(shopsOf(ex).concat(sp.shops))];
-    if(!ex.done){ if(merged.length>shopsOf(ex).length){ pushItem(patchLocal(ex.id,{shops:merged})); render(); toast("„"+ex.name+"“: "+merged.join(", ")); } else toast("„"+ex.name+"“ steht schon drauf"); return; }
-    const data={done:false, addedAt:now(), addedBy:S.me||""}; if(sp.shops.length) data.shops=merged;
+    if(!ex.done){
+      const data={}; if(merged.length>shopsOf(ex).length) data.shops=merged; if(prio && prio!==ex.prio) data.prio=prio;
+      if(Object.keys(data).length){ pushItem(patchLocal(ex.id,data)); render(); toast("„"+ex.name+"“: "+[data.prio?PRIO[data.prio]:"", data.shops?merged.join(", "):""].filter(Boolean).join(" · ")); }
+      else toast("„"+ex.name+"“ steht schon drauf");
+      return;
+    }
+    const data={done:false, addedAt:now(), addedBy:S.me||"", prio}; if(sp.shops.length) data.shops=merged;
     pushItem(patchLocal(ex.id,data)); render();
   } else {
     const id=uid();
-    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops})); render();
+    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops, prio})); render();
   }
 }
+// Knöpfe „Dringend“ / „Vorrat“ unter dem Eingabefeld
+function prioBarHtml(){ return '<span class="small">Kennzeichen:</span>'+[["dringend","Dringend"],["vorrat","Vorrat"]].map(([k,l])=>'<button type="button" data-addprio="'+k+'" class="pc-'+k+(S.addPrio===k?' on':'')+'">'+l+'</button>').join("")+
+  (S.addPrio?'<span class="small">gilt für den nächsten Eintrag</span>':''); }
+function renderPrioBar(){ const el=$("addprio"); if(el) el.innerHTML=prioBarHtml(); }
 function toggle(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
   const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0, prio:it.prio||""};
@@ -163,11 +174,12 @@ function renderHead(light){
     $("storebar").innerHTML=storeBtns();
     const q=$("q"); if(q) q.placeholder="Was brauchen wir bei "+storeName(S.cur)+"?";
     $("net").textContent = S.online ? "" : "offline";
-    renderSugg(); return;
+    renderPrioBar(); renderSugg(); return;
   }
   h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="prices" aria-label="Angebote und Preise">'+TAG+'</button><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
     '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
+    '<div class="addprio" id="addprio">'+prioBarHtml()+'</div>'+
     '<div class="sugg" id="sugg"></div>';
   const q=$("q");
   q.addEventListener("input",()=>{ S.q=q.value; renderSugg(); });
@@ -516,7 +528,8 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
-  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop]"); if(!t) return;
+  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop],[data-addprio]"); if(!t) return;
+  if(t.dataset.addprio){ S.addPrio = S.addPrio===t.dataset.addprio ? "" : t.dataset.addprio; renderPrioBar(); const q=$("q"); if(q && q.value) q.focus(); return; }
   if(t.dataset.drop){ dropItem(t.dataset.drop); return; }
   if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }

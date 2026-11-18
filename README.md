@@ -6,7 +6,7 @@ Läuft kostenlos auf Cloudflare Workers mit einer D1-Datenbank. Kein Claude-Kont
 ## Funktionen
 
 - Läden oben als Reiter, mit Anzahl der offenen Sachen
-- **Kennzeichen „Dringend“ und „Vorrat“** (Stift am Eintrag): Dringendes steht oben in einem eigenen Block, „Vorrat“ als blaues Kennzeichen. Beides fällt automatisch weg, sobald der Artikel abgehakt, von der Liste genommen oder gelöscht wird (Spalte `prio`, Migration 0009)
+- **Kennzeichen „Dringend“ und „Vorrat“** (beim Eintragen über die Knöpfe unter dem Eingabefeld – gilt für den nächsten Eintrag, auch über Autovervollständigung oder „Schon mal gekauft“ – oder später über den Stift am Eintrag): Dringendes steht oben in einem eigenen Block, „Vorrat“ als blaues Kennzeichen. Beides fällt automatisch weg, sobald der Artikel abgehakt, von der Liste genommen oder gelöscht wird (Spalte `prio`, Migration 0009)
 - Eintippen + Enter fügt hinzu; Autovervollständigung ab dem ersten Buchstaben aus allem, was schon angelegt ist (alle Läden, Wortanfänge zuerst, getippter Teil fett; Antippen trägt den Artikel in seinem eigenen Laden ein, getippte @Labels bleiben erhalten, Offenes zeigt „steht schon drauf“)
 - Antippen hakt ab (mit „Rückgängig“); Abgehaktes erscheint unter „Schon mal gekauft“ und lässt sich mit einem Tipp wieder auf die Liste setzen
 - **×** am Eintrag: „doch nicht kaufen“ – nimmt ihn von der Liste, zählt aber nicht als Kauf (keine Häufigkeit, keine Nachricht); er steht wieder unter „Schon mal gekauft“. Technisch: `/api/item` mit `skip: true`
