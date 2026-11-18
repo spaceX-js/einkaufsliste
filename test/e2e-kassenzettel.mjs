@@ -132,6 +132,27 @@ try {
   ok(/schon gespeichert/.test(await page.locator("#toast").textContent()), "doppelter Bon wird erkannt");
   await page.click(".acts [data-rc=cancel]"); await page.waitForTimeout(200);
 
+  // Aus der Zwischenablage: PDF als Datei einsetzen und Bon als Text einsetzen
+  const pdfB64 = readFileSync("/tmp/bon-test.pdf").toString("base64");
+  await page.evaluate(b64 => { const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); const dt = new DataTransfer();
+    dt.items.add(new File([bin], "kopiert.pdf", { type: "application/pdf" })); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true })); }, pdfB64);
+  await page.waitForSelector(".rline", { timeout: 15000 });
+  ok((await page.locator(".rline").count()) === 7, "PDF aus der Zwischenablage gelesen");
+  await page.click(".acts [data-rc=cancel]"); await page.waitForTimeout(200);
+  await page.evaluate(t => { const dt = new DataTransfer(); dt.setData("text/plain", t); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true })); },
+    "Lidl\nKiwi Gold 0,49 x 2 0,98 A\nzu zahlen 0,98\n14.11.26 18:31");
+  await page.waitForSelector(".rline", { timeout: 5000 });
+  ok((await page.locator(".rline").count()) === 1 && (await page.locator("#rc_shops button.on").textContent()) === "Lidl", "Bon-Text aus der Zwischenablage gelesen");
+  await page.click(".acts [data-rc=cancel]"); await page.waitForTimeout(200);
+  await page.evaluate(() => { const dt = new DataTransfer(); dt.setData("text/plain", "Hallo"); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true })); });
+  await page.waitForTimeout(300);
+  ok(/kein Kassenzettel erkannt/.test(await page.textContent("#app")), "Unsinn aus der Zwischenablage: verständlicher Hinweis");
+  // Knopf ohne Zugriff auf die Zwischenablage → Feld zum Einsetzen
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { value: { read: () => Promise.reject(new Error("nein")) }, configurable: true }); });
+  await page.click("[data-rc=paste]"); await page.waitForSelector("#rc_paste");
+  ok(await page.locator("#rc_paste").isVisible(), "Einsetz-Feld erscheint, wenn der Zugriff nicht erlaubt ist");
+  await page.screenshot({ path: "/tmp/kz-paste.png" });
+
   // Foto (nachgebaute Bilderkennung): langes Bild wird in Abschnitte geteilt
   if (existsSync("/tmp/bon-test.jpg")) {
     await page.setInputFiles("#rc_file", "/tmp/bon-test.jpg");

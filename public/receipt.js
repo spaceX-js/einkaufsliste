@@ -113,6 +113,37 @@ async function handleFile(file){
     makeDraft(res, isPdf?"pdf":"foto");
   }catch(e){ R.mode="list"; R.err=e.message||"Hat nicht geklappt."; draw(); }
 }
+// Text eines Bons (z. B. aus einer E-Mail kopiert) direkt lesen
+async function handleText(text){
+  R.err=""; R.mode="busy"; R.busy="Text wird gelesen …"; draw();
+  try{
+    const res=await A.api("POST","/api/receipt/parse",{text:String(text).slice(0,60000)});
+    if(!res.lines || !res.lines.length) throw new Error("Im eingefügten Text wurde kein Kassenzettel erkannt. Kopiere den ganzen Bon oder nimm ein Bild bzw. PDF.");
+    makeDraft(res, "pdf");
+  }catch(e){ R.mode="list"; R.err=e.message||"Hat nicht geklappt."; draw(); }
+}
+// Inhalt der Zwischenablage: Bild oder PDF als Datei, sonst Text
+async function handleClip(files, text){
+  const f=[...(files||[])].find(x=>/^image\/|^application\/pdf$/.test(x.type));
+  if(f) return handleFile(f.name ? f : new File([f], "zwischenablage."+(f.type==="application/pdf"?"pdf":"png"), {type:f.type}));
+  if(text && text.trim()) return handleText(text);
+  R.err="In der Zwischenablage ist kein Bild, PDF oder Bon-Text."; draw();
+}
+async function pasteButton(){
+  // erst die moderne Schnittstelle (Safari fragt dann kurz „Einsetzen“), sonst Feld zum Einsetzen
+  if(navigator.clipboard && navigator.clipboard.read){
+    try{
+      const items=await navigator.clipboard.read(); const files=[]; let text="";
+      for(const it of items){
+        const t=it.types.find(x=>/^image\/|^application\/pdf$/.test(x));
+        if(t){ files.push(await it.getType(t)); continue; }
+        if(it.types.includes("text/plain")) text+=await (await it.getType("text/plain")).text();
+      }
+      return handleClip(files, text);
+    }catch(e){ /* nicht erlaubt oder nicht unterstützt → Feld anzeigen */ }
+  }
+  R.pasteBox=true; draw(); const pb=$("rc_paste"); if(pb) pb.focus();
+}
 function makeDraft(res, source){
   const shop=res.shop ? shopLabel(res.shop) : "";
   const store=storeForShop(shop);
@@ -143,7 +174,9 @@ function draw(){
   if(R.mode==="detail") return drawDetail();
   head("Kassenzettel","close");
   let h='<label class="btn block upl">Kassenzettel hinzufügen<input type="file" id="rc_file" accept="application/pdf,image/*"></label>'+
-    '<div class="small" style="margin:2px 4px 14px">PDF aus der Rewe-, Penny-, dm- oder Rossmann-App, Screenshot aus Lidl Plus oder ein Foto vom Papierbon. Fotos werden nur gelesen und nicht gespeichert.</div>';
+    '<button class="btn ghost block" data-rc="paste" style="margin-top:8px">Aus Zwischenablage einfügen</button>'+
+    (R.pasteBox?'<div id="rc_paste" class="pastebox" contenteditable="true" role="textbox" aria-label="Hier einsetzen" data-ph="Hier lange drücken und „Einsetzen“ wählen"></div>':'')+
+    '<div class="small" style="margin:2px 4px 14px">PDF aus der Rewe-, Penny-, dm- oder Rossmann-App, Screenshot aus Lidl Plus oder ein Foto vom Papierbon – oder vorher kopieren und mit „Aus Zwischenablage einfügen“ holen (Bild, PDF oder Bon-Text). Fotos werden nur gelesen und nicht gespeichert.</div>';
   if(R.err) h+='<div class="alert bad">'+esc(R.err)+'</div>';
   if(!R.list) h+='<div class="empty"><div class="spin"></div></div>';
   else if(!R.list.length) h+='<div class="list"><div class="empty">Noch keine Kassenzettel gespeichert.<br><span class="small">Aus jedem Bon merkt sich die App die Preise eurer Artikel – Laden für Laden.</span></div></div>';
@@ -276,6 +309,7 @@ document.addEventListener("click",e=>{
   else if(k==="cancel"){ if(R.mode==="review" && !b.dataset.sure && !confirm("Diesen Kassenzettel verwerfen?")) return; R.draft=null; R.mode="list"; draw(); }
   else if(k==="shop"){ d.shop=b.dataset.k; const k2=d.shop.toLowerCase(); if(A.stores().some(s=>s.name.toLowerCase()===k2||(s.labels||[]).some(l=>l.toLowerCase()===k2))) d.store=storeForShop(d.shop); drawReview(); }
   else if(k==="store"){ d.store=b.dataset.k; drawReview(); }
+  else if(k==="paste") pasteButton();
   else if(k==="othershop"){ const n=(prompt("Name des Geschäfts, z. B. Hornbach")||"").replace(/[<>|,]/g,"").trim().slice(0,30);
     if(n){ d.shop=allShops().find(l=>l.toLowerCase()===n.toLowerCase())||n; if(A.stores().some(s=>s.name.toLowerCase()===n.toLowerCase()||(s.labels||[]).some(l=>l.toLowerCase()===n.toLowerCase()))) d.store=storeForShop(n); drawReview(); } }
   else if(k==="line") openLine(+b.dataset.ix);
@@ -285,6 +319,13 @@ document.addEventListener("click",e=>{
     if(!R.delArm){ R.delArm=true; drawDetail(); return; }
     A.api("POST","/api/receipt/delete",{id:R.detail.id}).then(()=>{ A.toast("Kassenzettel gelöscht"); R.mode="list"; R.list=null; draw(); loadList(); }).catch(err=>A.toast(err.message));
   }
+});
+
+document.addEventListener("paste",e=>{
+  if(S.view!=="receipts" || R.mode!=="list" || $("modal").innerHTML) return;
+  const cd=e.clipboardData; if(!cd) return;
+  e.preventDefault(); R.pasteBox=false;
+  handleClip(cd.files, cd.getData("text/plain"));
 });
 
 window.Receipts = { open, render: draw, prices, _test:{ toks, tokMatch, score, candidates, niceName, fold } };

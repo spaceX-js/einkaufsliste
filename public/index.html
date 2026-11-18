@@ -191,6 +191,9 @@ label.f > span{display:block;font-size:13px;color:var(--mute);margin:0 0 5px}
 
 /* Kassenzettel */
 #rc_shops .dash{border-style:dashed;color:var(--acc)}
+.pastebox{margin-top:8px;min-height:64px;border:2px dashed var(--acc);border-radius:12px;padding:14px;color:var(--mute);text-align:center;background:var(--card);-webkit-user-select:text;user-select:text}
+.pastebox:empty::before{content:attr(data-ph);color:var(--mute)}
+.pastebox:focus{outline:2px solid var(--acc);outline-offset:1px}
 .upl{position:relative;text-align:center;overflow:hidden;margin-top:4px}
 .upl input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .alert.bad{background:transparent;border:1px solid var(--bad);color:var(--bad);margin:0 0 12px}
