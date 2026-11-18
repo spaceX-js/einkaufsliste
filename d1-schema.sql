@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS items (
   cat        TEXT NOT NULL DEFAULT '',   -- Warengruppe, leer = automatisch nach Stichwörtern
   buy_count  INTEGER NOT NULL DEFAULT 0, -- wie oft schon gekauft (abgehakt)
   added_by   TEXT NOT NULL DEFAULT '',   -- wer es zuletzt auf die Liste gesetzt hat
-  shop       TEXT NOT NULL DEFAULT ''    -- optional: nur in diesem Geschäft kaufen (Label, z. B. „Edeka“)
+  shop       TEXT NOT NULL DEFAULT '',   -- optional: Labels, z. B. „Aldi|Edeka“
+  prio       TEXT NOT NULL DEFAULT ''    -- Kennzeichen: dringend, vorrat oder leer
 );
 CREATE INDEX IF NOT EXISTS items_store ON items(store);
 

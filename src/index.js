@@ -65,14 +65,14 @@ async function api(request, env, settings, url, ctx) {
   if (path === "/api/state" && method === "GET") {
     const rev = Number(settings.rev || 0);
     if (url.searchParams.get("rev") === String(rev)) return json({ rev, same: true });
-    const { results } = await env.DB.prepare("SELECT id, name, store, note, done, added_at, done_at, cat, buy_count, added_by, shop FROM items").all();
+    const { results } = await env.DB.prepare("SELECT id, name, store, note, done, added_at, done_at, cat, buy_count, added_by, shop, prio FROM items").all();
     return json({
       rev,
       stores: parseStores(settings.stores),
       people: people(settings),
       stage: env.STAGE || "",
       items: results.map(r => ({ id: r.id, name: r.name, store: r.store, note: r.note || "", done: !!r.done, addedAt: r.added_at || null, doneAt: r.done_at || null,
-        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shops: splitShops(r.shop) }))
+        cat: r.cat || "", buyCount: Number(r.buy_count) || 0, addedBy: r.added_by || "", shops: splitShops(r.shop), prio: r.prio || "" }))
     });
   }
 
@@ -93,13 +93,13 @@ async function api(request, env, settings, url, ctx) {
     if (prev && prev.done === 1 && !it.done && prev.done_at && prev.done_at > undoWindow)
       extra.push(env.DB.prepare("DELETE FROM purchases WHERE id = (SELECT id FROM purchases WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1)").bind(it.id, undoWindow));
     const results = await env.DB.batch([
-      env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by, shop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET name = excluded.name, store = excluded.store, note = excluded.note, done = excluded.done,
+      env.DB.prepare(`INSERT INTO items (id, name, store, note, done, added_at, done_at, updated_at, cat, buy_count, added_by, shop, prio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET name = excluded.name, store = excluded.store, note = excluded.note, done = excluded.done, prio = excluded.prio,
           added_at = excluded.added_at, done_at = excluded.done_at, updated_at = excluded.updated_at, cat = excluded.cat, shop = excluded.shop,
           buy_count = MAX(0, items.buy_count + CASE WHEN items.done = 0 AND excluded.done = 1 AND ? = 0 THEN 1
                                                     WHEN items.done = 1 AND excluded.done = 0 AND items.done_at > ? THEN -1 ELSE 0 END),
           added_by = CASE WHEN items.done = 1 AND excluded.done = 0 THEN excluded.added_by ELSE items.added_by END`)
-        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done && !it.skip ? 1 : 0), by, it.shop, it.skip ? 1 : 0, undoWindow),
+        .bind(it.id, it.name, it.store, it.note, it.done ? 1 : 0, it.addedAt, it.doneAt, now, it.cat, Math.max(it.buyCount, it.done && !it.skip ? 1 : 0), by, it.shop, it.prio, it.skip ? 1 : 0, undoWindow),
       ...extra,
       bumpRev(env)
     ]);
@@ -190,7 +190,9 @@ export function checkItem(b) {
   const cat = typeof b.cat === "string" && CAT_RE.test(b.cat) ? b.cat : "";
   const buyCount = Math.max(0, Math.min(100000, Math.floor(Number(b.buyCount) || 0)));
   return { id: b.id, name, store: b.store, note: String(b.note || "").trim().slice(0, 300), done: !!b.done, addedAt: isoOrNull(b.addedAt), doneAt: isoOrNull(b.doneAt),
-    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: joinShops(Array.isArray(b.shops) ? b.shops : [b.shop]), skip: b.skip === true };
+    cat, buyCount, by: typeof b.by === "string" ? b.by : "", shop: joinShops(Array.isArray(b.shops) ? b.shops : [b.shop]), skip: b.skip === true,
+    // „dringend“/„Vorrat“ gilt nur, solange es auf der Liste steht
+    prio: !b.done && (b.prio === "dringend" || b.prio === "vorrat") ? b.prio : "" };
 }
 // Label wie „Edeka“ oder „dm“: optional, kurz, ohne Steuerzeichen. Mehrere Labels stehen in der Spalte shop als „Aldi|Edeka“.
 function cleanLabel(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f<>|,]/g, "").replace(/\s+/g, " ").trim().slice(0, 30); }

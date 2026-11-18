@@ -200,5 +200,22 @@ ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "A
   await page.screenshot({ path: "/tmp/e2e-ac.png" });
 }
 
+// Kennzeichen „Dringend“ / „Vorrat“
+{
+  await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
+  await page.click(".row:has-text('Maggi') .more"); await page.waitForSelector("#e_pr");
+  await page.click("#e_pr [data-pr=dringend]"); await page.click("#e_ok"); await page.waitForTimeout(400);
+  ok((await page.locator(".grp.urg").count()) === 1 && /Maggi/.test(await page.locator(".list.urgl").textContent()), "Dringend-Block oben mit Maggi");
+  ok(db.prepare("SELECT prio FROM items WHERE id='b'").get().prio === "dringend", "dringend gespeichert");
+  await page.click(".row:has-text('Eier') .more"); await page.waitForSelector("#e_pr");
+  await page.click("#e_pr [data-pr=vorrat]"); await page.click("#e_ok"); await page.waitForTimeout(400);
+  ok((await page.locator(".row:has-text('Eier') .prio.p-vorrat").count()) === 1, "Eier mit Kennzeichen Vorrat");
+  await page.screenshot({ path: "/tmp/e2e-prio.png" });
+  await page.click(".row .tick >> text=Maggi"); await page.waitForTimeout(500);
+  ok(db.prepare("SELECT prio, done FROM items WHERE id='b'").get().prio === "" && (await page.locator(".grp.urg").count()) === 0, "abgehakt → dringend weg");
+  await page.click(".row:has-text('Eier') .drop"); await page.waitForTimeout(500);
+  ok(db.prepare("SELECT prio FROM items WHERE name='Eier'").get().prio === "", "von der Liste genommen → Vorrat weg");
+}
+
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
 await browser.close(); server.close();

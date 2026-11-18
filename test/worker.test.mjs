@@ -669,3 +669,22 @@ test("Angebote: Grundpreis selbst berechnen und „Neue Angebote suchen“ in Po
   const bad = await post(env, ck, "/api/offers/refresh", { start: true, again: true });
   assert.equal(bad.status, 502);
 });
+
+test("Kennzeichen dringend/Vorrat: nur auf der Liste, fällt beim Kaufen und Abnehmen weg", async () => {
+  const env = await setup(); const ck = await login(env);
+  const prioOf = async id => (await (await get(env, ck, "/api/state")).json()).items.find(i => i.id === id).prio;
+  const base = { name: "Milch", store: "supermarkt", done: false, addedAt: new Date().toISOString() };
+  await post(env, ck, "/api/item", { id: "m", ...base, prio: "dringend" });
+  assert.equal(await prioOf("m"), "dringend");
+  await post(env, ck, "/api/item", { id: "m", ...base, prio: "quatsch" });
+  assert.equal(await prioOf("m"), "");
+  await post(env, ck, "/api/item", { id: "m", ...base, prio: "vorrat" });
+  assert.equal(await prioOf("m"), "vorrat");
+  // abhaken (gekauft) → weg
+  await post(env, ck, "/api/item", { id: "m", ...base, done: true, doneAt: new Date().toISOString(), prio: "vorrat" });
+  assert.equal(await prioOf("m"), "");
+  // wieder auf die Liste, dringend, dann ohne Kauf abnehmen → weg
+  await post(env, ck, "/api/item", { id: "m", ...base, prio: "dringend" });
+  await post(env, ck, "/api/item", { id: "m", ...base, done: true, skip: true, prio: "dringend" });
+  assert.equal(await prioOf("m"), "");
+});

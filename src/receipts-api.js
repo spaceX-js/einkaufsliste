@@ -77,7 +77,7 @@ export async function receiptApi(request, env, settings, url, h) {
       const ex = itemId && existing.get(itemId);
       if (r.tick && ex && ex.done === 0 && !ticked.has(itemId)) {
         ticked.add(itemId);
-        stmts.push(env.DB.prepare("UPDATE items SET done = 1, done_at = ?, updated_at = ?, buy_count = buy_count + 1 WHERE id = ? AND done = 0").bind(now, now, itemId));
+        stmts.push(env.DB.prepare("UPDATE items SET done = 1, done_at = ?, updated_at = ?, buy_count = buy_count + 1, prio = '' WHERE id = ? AND done = 0").bind(now, now, itemId));
         stmts.push(env.DB.prepare("INSERT INTO purchases (item_id, name, store, cat, shop, person, at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(itemId, ex.name, ex.store, ex.cat || "", ex.shop || "", r.person, now));
       }
     });

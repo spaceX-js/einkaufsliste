@@ -78,7 +78,9 @@ async function send(path, body){
   finally{ S.pending--; if(!S.pending){ S.dirty=false; refresh(true); } }
 }
 function itemBody(it){ return {id:it.id,name:it.name,store:it.store,note:it.note||"",done:!!it.done,addedAt:it.addedAt||null,doneAt:it.doneAt||null,
-  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shops:shopsOf(it)}; }
+  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shops:shopsOf(it),prio:it.done?"":(it.prio||"")}; }
+const PRIO={dringend:"Dringend", vorrat:"Vorrat"};
+const prioTag = i => !i.done && PRIO[i.prio] ? '<span class="prio p-'+i.prio+'">'+PRIO[i.prio]+'</span>' : '';
 // Labels eines Eintrags (ältere Zwischenspeicher kennen nur ein einzelnes „shop“)
 const shopsOf = i => Array.isArray(i.shops) ? i.shops : (i.shop ? [i.shop] : []);
 const tags = i => shopsOf(i).map(l=>'<span class="shop">'+esc(l)+'</span>').join("");
@@ -111,16 +113,16 @@ function addItem(name, store){
 }
 function toggle(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0};
-  const data = it.done ? {done:false, addedAt:now(), addedBy:S.me||""} : {done:true, doneAt:now(), buyCount:(it.buyCount||0)+1};
+  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0, prio:it.prio||""};
+  const data = it.done ? {done:false, addedAt:now(), addedBy:S.me||""} : {done:true, doneAt:now(), buyCount:(it.buyCount||0)+1, prio:""};
   pushItem(patchLocal(id,data)); render();
   if(data.done) toast("„"+it.name+"“ abgehakt", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
 // Von der Liste nehmen, ohne es zu kaufen: zurück unter „Schon mal gekauft“, zählt nicht als Kauf
 function dropItem(id){
   const it=S.items.find(i=>i.id===id); if(!it || it.done) return;
-  const before={done:false, doneAt:it.doneAt||null, addedAt:it.addedAt||null};
-  send("/api/item", Object.assign(itemBody(patchLocal(id,{done:true, doneAt:it.doneAt||null})), {skip:true})); render();
+  const before={done:false, doneAt:it.doneAt||null, addedAt:it.addedAt||null, prio:it.prio||""};
+  send("/api/item", Object.assign(itemBody(patchLocal(id,{done:true, doneAt:it.doneAt||null, prio:""})), {skip:true})); render();
   toast("„"+it.name+"“ von der Liste genommen", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
 function removeItem(id){
@@ -211,10 +213,13 @@ function render(){
       labels.map(l=>'<button class="'+(f.includes(l)?'on':'')+'" data-filter="'+esc(l)+'">'+esc(l)+(cnt(l)?' <small>'+cnt(l)+'</small>':'')+'</button>').join("")+'</div>';
     if(f.length && all.length>open.length) h+='<div class="small" style="margin:0 4px 8px">Nur Sachen mit Label '+f.map(esc).join(" oder ")+' · '+(all.length-open.length)+' weitere ausgeblendet</div>';
   }
-  if(open.length){
-    if(S.sortOpen==="group") h+=chunks(open).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
-    else h+='<div class="list">'+open.map(rowHtml).join("")+'</div>';
+  const urgent=open.filter(i=>i.prio==="dringend"), rest=open.filter(i=>i.prio!=="dringend");
+  if(urgent.length) h+='<div class="grp urg">Dringend · '+urgent.length+'</div><div class="list urgl">'+urgent.map(rowHtml).join("")+'</div>';
+  if(rest.length){
+    if(S.sortOpen==="group") h+=chunks(rest).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
+    else h+='<div class="list">'+rest.map(rowHtml).join("")+'</div>';
   }
+  else if(urgent.length){}
   else if(f.length) h+='<div class="list"><div class="empty">Nichts mit Label '+f.map(esc).join(" oder ")+'.<br><span class="small">Labels vergibst du über den Stift am Eintrag oder beim Eintippen mit @, z. B. „Brezel @'+esc(f[0])+'“.</span></div></div>';
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
@@ -233,7 +238,7 @@ function render(){
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
   const of=window.Prices && window.Prices.badge(i.id); if(of) d.push(of);
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">'+PEN+'</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+prioTag(i)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">'+PEN+'</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
 }
 
 /* ---------- Dialoge ---------- */
@@ -246,7 +251,7 @@ function sheet(inner){
 }
 function openEdit(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  let st=it.store, shops=shopsOf(it).slice(); const auto=G.guessGroup(it.name);
+  let st=it.store, shops=shopsOf(it).slice(), prio=it.prio||""; const auto=G.guessGroup(it.name);
   const shopChips=()=>{ const ls=labelsOf(st); shops=shops.filter(l=>ls.includes(l));
     return ls.length ? '<button type="button" data-sh="" class="'+(shops.length?'':'on')+'">Keins</button>'+ls.map(l=>'<button type="button" data-sh="'+esc(l)+'" class="'+(shops.includes(l)?'on':'')+'">'+esc(l)+'</button>').join("")
       : '<span class="small">Für '+esc(storeName(st))+' gibt es keine Labels. Anlegen unter Einstellungen → Läden bearbeiten.</span>'; };
@@ -257,6 +262,8 @@ function openEdit(id){
       G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
     '<label class="f"><span>Labels (optional, mehrere möglich)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
+    (it.done?'':'<label class="f"><span>Kennzeichen (fällt weg, sobald gekauft oder von der Liste genommen)</span><div class="chips" id="e_pr">'+
+      [["","Keins"],["dringend","Dringend"],["vorrat","Vorrat"]].map(([k,l])=>'<button type="button" data-pr="'+k+'" class="'+(prio===k?'on':'')+(k?' pc-'+k:'')+'">'+l+'</button>').join("")+'</div></label>')+
     '<div id="e_prices"></div>'+
     (it.done?'':'<button class="btn ghost block" id="e_drop">Von der Liste nehmen (nicht gekauft)</button>')+
     '<div class="acts"><button class="btn danger" id="e_del">Ganz löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>'+
@@ -265,6 +272,7 @@ function openEdit(id){
     const l=b.dataset.sh; shops = !l ? [] : shops.includes(l) ? shops.filter(x=>x!==l) : shops.concat([l]);
     m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
   bindSh();
+  m.querySelectorAll("#e_pr [data-pr]").forEach(b=>b.onclick=()=>{ prio=b.dataset.pr; m.querySelectorAll("#e_pr [data-pr]").forEach(x=>x.classList.toggle("on",x===b)); });
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
   if(window.Prices) window.Prices.editSection(id, $("e_prices"));
   $("e_x").onclick=closeModal;
@@ -274,7 +282,7 @@ function openEdit(id){
     const name=$("e_name").value.trim(), note=$("e_note").value.trim();
     if(!name){ toast("Bitte einen Namen eingeben"); return; }
     const cat=$("e_cat").value;
-    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shops.join("|")!==shopsOf(it).join("|")) data.shops=shops;
+    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shops.join("|")!==shopsOf(it).join("|")) data.shops=shops; if(!it.done && prio!==(it.prio||"")) data.prio=prio;
     if(Object.keys(data).length){ pushItem(patchLocal(id,data)); if(data.store) toast("Verschoben nach "+storeName(st)); }
     closeModal();
   };
