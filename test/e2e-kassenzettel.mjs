@@ -146,7 +146,7 @@ try {
   await page.click(".acts [data-rc=cancel]"); await page.waitForTimeout(200);
   await page.evaluate(() => { const dt = new DataTransfer(); dt.setData("text/plain", "Hallo"); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true })); });
   await page.waitForTimeout(300);
-  ok(/kein Kassenzettel erkannt/.test(await page.textContent("#app")), "Unsinn aus der Zwischenablage: verständlicher Hinweis");
+  ok(/In Dateien sichern/.test(await page.textContent("#app")), "Unsinn aus der Zwischenablage: Hinweis mit dem Weg über „In Dateien sichern“");
   // Knopf ohne Zugriff auf die Zwischenablage → Feld zum Einsetzen
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { value: { read: () => Promise.reject(new Error("nein")) }, configurable: true }); });
   await page.click("[data-rc=paste]"); await page.waitForSelector("#rc_paste");

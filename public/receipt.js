@@ -113,12 +113,14 @@ async function handleFile(file){
     makeDraft(res, isPdf?"pdf":"foto");
   }catch(e){ R.mode="list"; R.err=e.message||"Hat nicht geklappt."; draw(); }
 }
+// iPhone/Safari geben kopierte PDF-Dateien nicht an Webseiten weiter (nur Bilder und Text) – dann diesen Weg erklären
+const PDF_HINT="Kopierte PDFs gibt das iPhone leider nicht an Web-Apps weiter (nur Bilder und Text). So geht's: In WhatsApp das PDF öffnen → Teilen-Symbol → „In Dateien sichern“. Dann hier „Kassenzettel hinzufügen“ → „Datei auswählen“ und das PDF antippen.";
 // Text eines Bons (z. B. aus einer E-Mail kopiert) direkt lesen
 async function handleText(text){
   R.err=""; R.mode="busy"; R.busy="Text wird gelesen …"; draw();
   try{
     const res=await A.api("POST","/api/receipt/parse",{text:String(text).slice(0,60000)});
-    if(!res.lines || !res.lines.length) throw new Error("Im eingefügten Text wurde kein Kassenzettel erkannt. Kopiere den ganzen Bon oder nimm ein Bild bzw. PDF.");
+    if(!res.lines || !res.lines.length) throw new Error(String(text).trim().length<200 ? "In der Zwischenablage war nur ein kurzer Text, kein Kassenzettel. "+PDF_HINT : "Im eingefügten Text wurde kein Kassenzettel erkannt. Kopiere den ganzen Bon oder nimm ein Bild bzw. PDF.");
     makeDraft(res, "pdf");
   }catch(e){ R.mode="list"; R.err=e.message||"Hat nicht geklappt."; draw(); }
 }
@@ -127,7 +129,7 @@ async function handleClip(files, text){
   const f=[...(files||[])].find(x=>/^image\/|^application\/pdf$/.test(x.type));
   if(f) return handleFile(f.name ? f : new File([f], "zwischenablage."+(f.type==="application/pdf"?"pdf":"png"), {type:f.type}));
   if(text && text.trim()) return handleText(text);
-  R.err="In der Zwischenablage ist kein Bild, PDF oder Bon-Text."; draw();
+  R.mode="list"; R.err="In der Zwischenablage ist nichts, was die App lesen kann. "+PDF_HINT; R.pasteBox=false; draw();
 }
 async function pasteButton(){
   // erst die moderne Schnittstelle (Safari fragt dann kurz „Einsetzen“), sonst Feld zum Einsetzen
