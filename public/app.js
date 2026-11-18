@@ -10,7 +10,7 @@ const DEFAULT_STORES = [
 ];
 const S = { loaded:false, online:true, rev:null, items:[], stores:null, people:["Jonas","Clara"], cur:null, q:"", showAllHist:false, pending:0, dirty:false,
   me:"", sortOpen:"group", sortHist:"freq", histBy:{}, pushOn:false, filter:{},
-  view:"list", st:{ range:"week", offset:0, store:"", rows:null, first:null, loading:false, err:"", topAll:false, tip:"" } };
+  view:"list", st:{ range:"week", offset:0, store:"", lines:null, loading:false, err:"", tip:"" } };
 // Sortierung „Schon mal gekauft“ merkt sich jeder Laden selbst; sortHist ist nur der Startwert für Läden ohne eigene Wahl
 const histMode = store => S.histBy[store] || S.sortHist;
 const G = window.Groups;
@@ -63,8 +63,10 @@ async function refresh(force){
     if(d.same){ S.rev=d.rev; return; }
     S.rev=d.rev; S.items=d.items||[]; S.stores=(d.stores&&d.stores.length)?d.stores:null; S.loaded=true;
     if(Array.isArray(d.people)&&d.people.length) S.people=d.people;
+    if(d.stage==="test" && !document.getElementById("testbadge")){ const b=document.createElement("div"); b.id="testbadge"; b.textContent="TEST-VERSION · eigene Testdaten"; document.body.prepend(b); }
     fixCur(); saveLocal();
-    if(!$("modal").innerHTML) render(); else renderHead(true);
+    if($("modal").innerHTML){ if(S.view==="list") renderHead(true); }
+    else if(S.view!=="receipts" && S.view!=="prices") render();
   }catch(e){ if(!S.loaded){ S.loaded=true; render(); } }
 }
 // Eine Änderung zum Server schicken. Bis sie durch ist, werden keine Server-Stände übernommen,
@@ -76,7 +78,9 @@ async function send(path, body){
   finally{ S.pending--; if(!S.pending){ S.dirty=false; refresh(true); } }
 }
 function itemBody(it){ return {id:it.id,name:it.name,store:it.store,note:it.note||"",done:!!it.done,addedAt:it.addedAt||null,doneAt:it.doneAt||null,
-  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shops:shopsOf(it)}; }
+  cat:it.cat||"",buyCount:it.buyCount||0,by:S.me||"",shops:shopsOf(it),prio:it.done?"":(it.prio||"")}; }
+const PRIO={dringend:"Dringend", vorrat:"Vorrat"};
+const prioTag = i => !i.done && PRIO[i.prio] ? '<span class="prio p-'+i.prio+'">'+PRIO[i.prio]+'</span>' : '';
 // Labels eines Eintrags (ältere Zwischenspeicher kennen nur ein einzelnes „shop“)
 const shopsOf = i => Array.isArray(i.shops) ? i.shops : (i.shop ? [i.shop] : []);
 const tags = i => shopsOf(i).map(l=>'<span class="shop">'+esc(l)+'</span>').join("");
@@ -96,29 +100,45 @@ function addItem(name, store){
   name=String(name||"").trim(); if(!name) return;
   store=store||S.cur;
   const sp=splitShop(name, store); name=sp.name;
+  // Kennzeichen aus den Knöpfen unter dem Eingabefeld (gilt für diesen einen Eintrag)
+  const prio=S.addPrio||""; S.addPrio=""; renderPrioBar();
   const ex = S.items.find(i=>i.store===store && norm(i.name)===norm(name));
   if(ex){
     const merged=[...new Set(shopsOf(ex).concat(sp.shops))];
-    if(!ex.done){ if(merged.length>shopsOf(ex).length){ pushItem(patchLocal(ex.id,{shops:merged})); render(); toast("„"+ex.name+"“: "+merged.join(", ")); } else toast("„"+ex.name+"“ steht schon drauf"); return; }
-    const data={done:false, addedAt:now(), addedBy:S.me||""}; if(sp.shops.length) data.shops=merged;
+    if(!ex.done){
+      const data={}; if(merged.length>shopsOf(ex).length) data.shops=merged; if(prio && prio!==ex.prio) data.prio=prio;
+      if(Object.keys(data).length){ pushItem(patchLocal(ex.id,data)); render(); toast("„"+ex.name+"“: "+[data.prio?PRIO[data.prio]:"", data.shops?merged.join(", "):""].filter(Boolean).join(" · ")); }
+      else toast("„"+ex.name+"“ steht schon drauf");
+      return;
+    }
+    const data={done:false, addedAt:now(), addedBy:S.me||"", prio}; if(sp.shops.length) data.shops=merged;
     pushItem(patchLocal(ex.id,data)); render();
   } else {
     const id=uid();
-    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops})); render();
+    pushItem(patchLocal(id,{name:name.slice(0,120), store, note:"", done:false, addedAt:now(), doneAt:null, cat:"", buyCount:0, addedBy:S.me||"", shops:sp.shops, prio})); render();
   }
+}
+// Kleine Knöpfe „Dringend“ (!) und „Vorrat“ (Kiste) zwischen Eingabefeld und +
+const ICO_URG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v9"/><path d="M12 19h.01"/></svg>';
+const ICO_STOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4z"/><path d="M3 8v8l9 4 9-4V8"/><path d="M12 12v8"/></svg>';
+function prioBtns(){ return [["dringend",ICO_URG,"Dringend"],["vorrat",ICO_STOCK,"Vorrat"]].map(([k,ic,l])=>'<button type="button" class="pb pc-'+k+(S.addPrio===k?' on':'')+'" data-addprio="'+k+'" aria-label="'+l+'" aria-pressed="'+(S.addPrio===k)+'" title="'+l+'">'+ic+'</button>').join(""); }
+function renderPrioBar(){
+  document.querySelectorAll("form.add [data-addprio]").forEach(b=>{ const on=S.addPrio===b.dataset.addprio; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on); });
+  const hint=$("addprio"); if(hint) hint.innerHTML=S.addPrio?'<span class="prio p-'+S.addPrio+'">'+PRIO[S.addPrio]+'</span> für den nächsten Eintrag':'';
+  const q=$("q"); if(q) q.placeholder="Was brauchen wir bei "+storeName(S.cur)+"?";
 }
 function toggle(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0};
-  const data = it.done ? {done:false, addedAt:now(), addedBy:S.me||""} : {done:true, doneAt:now(), buyCount:(it.buyCount||0)+1};
+  const before={done:it.done, doneAt:it.doneAt||null, addedAt:it.addedAt||null, buyCount:it.buyCount||0, prio:it.prio||""};
+  const data = it.done ? {done:false, addedAt:now(), addedBy:S.me||""} : {done:true, doneAt:now(), buyCount:(it.buyCount||0)+1, prio:""};
   pushItem(patchLocal(id,data)); render();
   if(data.done) toast("„"+it.name+"“ abgehakt", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
 // Von der Liste nehmen, ohne es zu kaufen: zurück unter „Schon mal gekauft“, zählt nicht als Kauf
 function dropItem(id){
   const it=S.items.find(i=>i.id===id); if(!it || it.done) return;
-  const before={done:false, doneAt:it.doneAt||null, addedAt:it.addedAt||null};
-  send("/api/item", Object.assign(itemBody(patchLocal(id,{done:true, doneAt:it.doneAt||null})), {skip:true})); render();
+  const before={done:false, doneAt:it.doneAt||null, addedAt:it.addedAt||null, prio:it.prio||""};
+  send("/api/item", Object.assign(itemBody(patchLocal(id,{done:true, doneAt:it.doneAt||null, prio:""})), {skip:true})); render();
   toast("„"+it.name+"“ von der Liste genommen", ()=>{ pushItem(patchLocal(id,before)); render(); });
 }
 function removeItem(id){
@@ -147,38 +167,51 @@ function storeBtns(){
     return '<button class="store'+(s.id===S.cur?' on':'')+'" data-store="'+esc(s.id)+'">'+esc(s.name)+'<span class="cnt">'+n+'</span></button>'; }).join("");
 }
 const GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>';
+const PEN='<svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
+const TAG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg>';
+const RECEIPT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>';
 const CHART='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>';
 function renderHead(light){
   const h=$("head");
-  if(S.view==="stats") return;
+  if(S.view!=="list") return;
   if(light && $("storebar")){
     // Nur Läden, Platzhalter und Status aktualisieren, damit das Eingabefeld (und die Tastatur) stehen bleibt
     $("storebar").innerHTML=storeBtns();
-    const q=$("q"); if(q) q.placeholder="Was brauchen wir bei "+storeName(S.cur)+"?";
     $("net").textContent = S.online ? "" : "offline";
-    renderSugg(); return;
+    renderPrioBar(); renderSugg(); return;
   }
-  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
+  h.innerHTML='<div class="title"><h1>Einkauf<span class="net" id="net">'+(S.online?"":"offline")+'</span></h1><span class="tbtns"><button class="iconbtn" data-act="prices" aria-label="Angebote und Preise">'+TAG+'</button><button class="iconbtn" data-act="receipts" aria-label="Kassenzettel">'+RECEIPT+'</button><button class="iconbtn" data-act="stats" aria-label="Statistik">'+CHART+'</button><button class="iconbtn" data-act="menu" aria-label="Einstellungen">'+GEAR+'</button></span></div>'+
     '<div class="stores" id="storebar">'+storeBtns()+'</div>'+
-    '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'"><button type="submit" aria-label="Hinzufügen">+</button></form>'+
+    '<form class="add" id="addf" autocomplete="off"><input id="q" enterkeyhint="done" autocapitalize="sentences" placeholder="Was brauchen wir bei '+esc(storeName(S.cur))+'?" value="'+esc(S.q)+'">'+prioBtns()+'<button type="submit" class="plus" aria-label="Hinzufügen">+</button></form>'+
+    '<div class="addprio small" id="addprio"></div>'+
     '<div class="sugg" id="sugg"></div>';
   const q=$("q");
   q.addEventListener("input",()=>{ S.q=q.value; renderSugg(); });
   $("addf").addEventListener("submit",e=>{ e.preventDefault(); const v=q.value; S.q=""; q.value=""; addItem(v); renderSugg(); q.focus(); });
-  renderSugg();
+  renderPrioBar(); renderSugg();
   const on=h.querySelector(".store.on"); if(on) on.scrollIntoView({inline:"nearest",block:"nearest"});
 }
+// Autovervollständigung beim Eintippen: alles, was schon einmal angelegt wurde (alle Läden)
 function renderSugg(){
   const el=$("sugg"); if(!el) return;
-  const q=norm(S.q); if(q.length<2){ el.innerHTML=""; return; }
+  const at=S.q.search(/\s*@/); const base=at<0?S.q:S.q.slice(0,at);
+  const q=norm(base); if(!q){ el.innerHTML=""; return; }
+  const rank=i=>{ const n=norm(i.name); if(n.startsWith(q)) return 0; if(n.split(/[\s-]+/).some(w=>w.startsWith(q))) return 1; return q.length>=2 && n.includes(q) ? 2 : 9; };
   const seen=new Set();
-  const hits=S.items.filter(i=>i.done && norm(i.name).includes(q))
-    .sort((a,b)=>(a.store===S.cur?0:1)-(b.store===S.cur?0:1) || (norm(a.name).startsWith(q)?0:1)-(norm(b.name).startsWith(q)?0:1))
-    .filter(i=>{ const k=norm(i.name); if(seen.has(k)) return false; seen.add(k); return true; }).slice(0,6);
-  el.innerHTML=hits.map(i=>'<button data-sugg="'+esc(i.id)+'">'+esc(i.name)+(i.store!==S.cur?'<small>'+esc(storeName(i.store))+'</small>':'')+'</button>').join("");
+  const hits=S.items.map(i=>({i,r:rank(i)})).filter(x=>x.r<9)
+    .sort((a,b)=>a.r-b.r || (a.i.store===S.cur?0:1)-(b.i.store===S.cur?0:1) || (b.i.buyCount||0)-(a.i.buyCount||0) || a.i.name.localeCompare(b.i.name,"de"))
+    .filter(x=>{ const k=norm(x.i.name)+"|"+x.i.store; if(seen.has(k)) return false; seen.add(k); return true; }).slice(0,7).map(x=>x.i);
+  if(!hits.length){ el.innerHTML=""; return; }
+  // getippten Teil fett hervorheben
+  const mark=name=>{ const n=name.toLowerCase(), k=n.indexOf(base.trim().toLowerCase()); const L=base.trim().length;
+    return k<0||!L ? esc(name) : esc(name.slice(0,k))+'<b>'+esc(name.slice(k,k+L))+'</b>'+esc(name.slice(k+L)); };
+  el.innerHTML='<div class="ac">'+hits.map(i=>'<button type="button" data-sugg="'+esc(i.id)+'"'+(i.done?'':' class="onl"')+'><span>'+mark(i.name)+'</span>'+
+    '<small>'+[i.done?'':'steht schon drauf', i.store!==S.cur?esc(storeName(i.store)):'', (i.buyCount||0)>1&&i.done?i.buyCount+'×':''].filter(Boolean).join(" · ")+'</small></button>').join("")+'</div>';
 }
 function render(){
   if(S.view==="stats"){ renderStats(); return; }
+  if(S.view==="receipts"){ window.Receipts.render(); return; }
+  if(S.view==="prices"){ window.Prices.render(); return; }
   renderHead(!!$("storebar"));
   const app=$("app");
   if(!S.loaded){ app.innerHTML='<div class="empty"><div class="spin"></div>Liste wird geladen …</div>'; return; }
@@ -196,17 +229,20 @@ function render(){
       labels.map(l=>'<button class="'+(f.includes(l)?'on':'')+'" data-filter="'+esc(l)+'">'+esc(l)+(cnt(l)?' <small>'+cnt(l)+'</small>':'')+'</button>').join("")+'</div>';
     if(f.length && all.length>open.length) h+='<div class="small" style="margin:0 4px 8px">Nur Sachen mit Label '+f.map(esc).join(" oder ")+' · '+(all.length-open.length)+' weitere ausgeblendet</div>';
   }
-  if(open.length){
-    if(S.sortOpen==="group") h+=chunks(open).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
-    else h+='<div class="list">'+open.map(rowHtml).join("")+'</div>';
+  const urgent=open.filter(i=>i.prio==="dringend"), rest=open.filter(i=>i.prio!=="dringend");
+  if(urgent.length) h+='<div class="grp urg">Dringend · '+urgent.length+'</div><div class="list urgl">'+urgent.map(rowHtml).join("")+'</div>';
+  if(rest.length){
+    if(S.sortOpen==="group") h+=chunks(rest).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="list">'+c.items.map(rowHtml).join("")+'</div>').join("");
+    else h+='<div class="list">'+rest.map(rowHtml).join("")+'</div>';
   }
-  else if(f.length) h+='<div class="list"><div class="empty">Nichts mit Label '+f.map(esc).join(" oder ")+'.<br><span class="small">Labels vergibst du über „⋯“ am Eintrag oder beim Eintippen mit @, z. B. „Brezel @'+esc(f[0])+'“.</span></div></div>';
+  else if(urgent.length){}
+  else if(f.length) h+='<div class="list"><div class="empty">Nichts mit Label '+f.map(esc).join(" oder ")+'.<br><span class="small">Labels vergibst du über den Stift am Eintrag oder beim Eintippen mit @, z. B. „Brezel @'+esc(f[0])+'“.</span></div></div>';
   else h+='<div class="list"><div class="empty">Alles erledigt 🎉<br><span class="small">Oben eintippen oder unten antippen, um etwas hinzuzufügen.</span></div></div>';
   if(hist.length){
     const hm=histMode(S.cur), lim=S.showAllHist?hist.length:(hm==="group"?hist.length:24);
     const chip=i=>'<button data-readd="'+esc(i.id)+'">'+esc(i.name)+tags(i)+((i.buyCount||0)>1?'<small>'+i.buyCount+'×</small>':'')+'</button>';
     h+='<div class="sec"><b>Schon mal gekauft</b>'+seg("hist",hm,[["freq","Häufigkeit"],["group","Warengruppe"]])+'</div>';
-    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste</div>';
+    h+='<div class="small" style="margin:-2px 4px 8px">Antippen = wieder auf die Liste'+'</div>';
     if(hm==="group") h+=chunks(hist).map(c=>'<div class="grp">'+esc(G.groupName(c.g))+'</div><div class="hist">'+c.items.map(chip).join("")+'</div>').join("");
     else h+='<div class="hist">'+hist.slice(0,lim).map(chip).join("")+'</div>';
     if(hist.length>lim) h+='<button class="linkbtn" data-act="allHist">Alle '+hist.length+' anzeigen</button>';
@@ -217,7 +253,8 @@ function render(){
 }
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">⋯</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
+  const of=window.Prices && window.Prices.badge(i.id); if(of) d.push(of);
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+prioTag(i)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">'+PEN+'</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
 }
 
 /* ---------- Dialoge ---------- */
@@ -230,7 +267,7 @@ function sheet(inner){
 }
 function openEdit(id){
   const it=S.items.find(i=>i.id===id); if(!it) return;
-  let st=it.store, shops=shopsOf(it).slice(); const auto=G.guessGroup(it.name);
+  let st=it.store, shops=shopsOf(it).slice(), prio=it.prio||""; const auto=G.guessGroup(it.name);
   const shopChips=()=>{ const ls=labelsOf(st); shops=shops.filter(l=>ls.includes(l));
     return ls.length ? '<button type="button" data-sh="" class="'+(shops.length?'':'on')+'">Keins</button>'+ls.map(l=>'<button type="button" data-sh="'+esc(l)+'" class="'+(shops.includes(l)?'on':'')+'">'+esc(l)+'</button>').join("")
       : '<span class="small">Für '+esc(storeName(st))+' gibt es keine Labels. Anlegen unter Einstellungen → Läden bearbeiten.</span>'; };
@@ -241,6 +278,9 @@ function openEdit(id){
       G.GROUPS.map(g=>'<option value="'+g.id+'"'+(it.cat===g.id?' selected':'')+'>'+esc(g.name)+'</option>').join("")+'</select></label>'+
     '<label class="f"><span>Laden</span><div class="chips" id="e_st">'+stores().map(s=>'<button type="button" data-s="'+esc(s.id)+'" class="'+(s.id===st?'on':'')+'">'+esc(s.name)+'</button>').join("")+'</div></label>'+
     '<label class="f"><span>Labels (optional, mehrere möglich)</span><div class="chips" id="e_sh">'+shopChips()+'</div></label>'+
+    (it.done?'':'<label class="f"><span>Kennzeichen (fällt weg, sobald gekauft oder von der Liste genommen)</span><div class="chips" id="e_pr">'+
+      [["","Keins"],["dringend","Dringend"],["vorrat","Vorrat"]].map(([k,l])=>'<button type="button" data-pr="'+k+'" class="'+(prio===k?'on':'')+(k?' pc-'+k:'')+'">'+l+'</button>').join("")+'</div></label>')+
+    '<div id="e_prices"></div>'+
     (it.done?'':'<button class="btn ghost block" id="e_drop">Von der Liste nehmen (nicht gekauft)</button>')+
     '<div class="acts"><button class="btn danger" id="e_del">Ganz löschen</button><button class="btn ghost" id="e_x">Abbrechen</button><button class="btn" id="e_ok">Fertig</button></div>'+
     '<div class="small" style="margin:8px 2px 0">„Ganz löschen“ entfernt den Artikel auch aus „Schon mal gekauft“.</div>');
@@ -248,7 +288,9 @@ function openEdit(id){
     const l=b.dataset.sh; shops = !l ? [] : shops.includes(l) ? shops.filter(x=>x!==l) : shops.concat([l]);
     m.querySelectorAll("#e_sh [data-sh]").forEach(x=>x.classList.toggle("on", x.dataset.sh ? shops.includes(x.dataset.sh) : !shops.length)); });
   bindSh();
+  m.querySelectorAll("#e_pr [data-pr]").forEach(b=>b.onclick=()=>{ prio=b.dataset.pr; m.querySelectorAll("#e_pr [data-pr]").forEach(x=>x.classList.toggle("on",x===b)); });
   m.querySelectorAll("#e_st button").forEach(b=>b.onclick=()=>{ st=b.dataset.s; m.querySelectorAll("#e_st button").forEach(x=>x.classList.toggle("on",x===b)); $("e_sh").innerHTML=shopChips(); bindSh(); });
+  if(window.Prices) window.Prices.editSection(id, $("e_prices"));
   $("e_x").onclick=closeModal;
   $("e_del").onclick=()=>{ $("modal").innerHTML=""; removeItem(id); };
   if($("e_drop")) $("e_drop").onclick=()=>{ $("modal").innerHTML=""; dropItem(id); };
@@ -256,7 +298,7 @@ function openEdit(id){
     const name=$("e_name").value.trim(), note=$("e_note").value.trim();
     if(!name){ toast("Bitte einen Namen eingeben"); return; }
     const cat=$("e_cat").value;
-    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shops.join("|")!==shopsOf(it).join("|")) data.shops=shops;
+    const data={}; if(name!==it.name) data.name=name; if(note!==(it.note||"")) data.note=note; if(st!==it.store) data.store=st; if(cat!==(it.cat||"")) data.cat=cat; if(shops.join("|")!==shopsOf(it).join("|")) data.shops=shops; if(!it.done && prio!==(it.prio||"")) data.prio=prio;
     if(Object.keys(data).length){ pushItem(patchLocal(id,data)); if(data.store) toast("Verschoben nach "+storeName(st)); }
     closeModal();
   };
@@ -362,7 +404,6 @@ async function drawPush(){
 const MON=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 const MONL=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const WD=["Mo","Di","Mi","Do","Fr","Sa","So"];
-const dayKey = d => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 function startOfWeek(d){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
 function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-day+3);
   const fy=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-fy)/86400000-3+((fy.getUTCDay()+6)%7))/7); }
@@ -387,16 +428,65 @@ function period(range, offset){
 }
 async function loadStats(){
   const st=S.st; st.loading=true; st.err=""; renderStats();
-  try{ const d=await api("GET","/api/purchases?since=2000-01-01T00:00:00.000Z"); st.rows=d.rows.map(r=>({id:r[0],name:r[1],store:r[2],cat:r[3],shops:r[4]?r[4].split("|"):[],person:r[5],at:new Date(r[6])})); st.first=d.first?new Date(d.first):null; }
+  try{
+    const rc=await api("GET","/api/receipts");
+    st.receipts=(rc.receipts||[]).map(r=>{ const m=String(r.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]), total:r.total, shop:r.shop, store:r.store||""}:null; }).filter(Boolean);
+    const rl=await api("GET","/api/receipt-lines");
+    st.lines=(rl.lines||[]).map(l=>{ const m=String(l.at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?Object.assign({},l,{at:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5])}):null; }).filter(Boolean);
+  }
   catch(e){ st.err=e.message||"Statistik konnte nicht geladen werden."; }
   st.loading=false; renderStats();
 }
 function openStats(){ S.view="stats"; S.st.tip=""; window.scrollTo(0,0); renderStats(); loadStats(); }
 function closeStats(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); }
-function barsHtml(list, max, label){
-  // waagerechte Balken: Name, Balken, Zahl
-  return '<div class="hbars">'+list.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+(x.sub?'<small>'+esc(x.sub)+'</small>':'')+'</span><b>'+x.n+'</b></div>'+
-    '<div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/max*100))+'%"></span></div></div>').join("")+'</div>';
+// Echte Ausgaben aus den Kassenzetteln: Summe im Zeitraum, Wochen-Verlauf, nach Geschäft
+const euro = c => (c/100).toLocaleString("de-DE",{minimumFractionDigits:2, maximumFractionDigits:2})+" €";
+const euro0 = c => Math.round(c/100).toLocaleString("de-DE")+" €";
+function spendHtml(p, prevP, prevName, inStore){
+  const st=S.st, all=(st.receipts||[]).filter(inStore);
+  if(!all.length) return '<div class="card-s"><div class="ch"><b>Ausgaben</b></div><div class="small">Sobald ihr Kassenzettel hochladet (Bon-Symbol oben in der Liste), steht hier, was ihr pro Woche wirklich ausgebt.</div></div>';
+  const inP=all.filter(r=>r.at>=p.from && r.at<p.to), sum=inP.reduce((a,r)=>a+r.total,0);
+  const prev=all.filter(r=>r.at>=prevP.from && r.at<prevP.to).reduce((a,r)=>a+r.total,0);
+  const d=sum-prev;
+  let h='<div class="card-s"><div class="ch"><b>Ausgaben</b><span>'+inP.length+' Kassenzettel</span></div>'+
+    '<div class="spend"><b>'+euro(sum)+'</b>'+(prev||sum?'<span>'+(d===0?'wie':(d>0?'+':'−')+euro(Math.abs(d))+' ggü.')+' '+prevName+'</span>':'')+'</div>';
+  // letzte 12 Wochen (bis zur Woche des gewählten Zeitraums)
+  const end=startOfWeek(p.to>new Date()?new Date():new Date(p.to-1)); const weeks=[];
+  for(let i=11;i>=0;i--){ const f=new Date(end); f.setDate(f.getDate()-7*i); const t=new Date(f); t.setDate(t.getDate()+7); weeks.push({f,t}); }
+  const ws=weeks.map(w=>all.filter(r=>r.at>=w.f && r.at<w.t).reduce((a,r)=>a+r.total,0)), max=Math.max(1,...ws);
+  const used=ws.filter(x=>x>0); const avg=used.length?Math.round(used.reduce((a,b)=>a+b,0)/used.length):0;
+  h+='<div class="ch" style="margin-top:12px"><b>Pro Woche</b><span id="sptip">'+(avg?'Schnitt '+euro0(avg)+' (Wochen mit Bon)':'')+'</span></div>'+
+    '<div class="vbars r-week"><span class="ymax">'+euro0(max)+'</span>'+weeks.map((w,i)=>{ const l=new Date(w.t); l.setDate(l.getDate()-1);
+      const tip='KW '+isoWeek(w.f)+' ('+w.f.getDate()+'.'+(w.f.getMonth()+1)+'.–'+l.getDate()+'.'+(l.getMonth()+1)+'.): '+euro(ws[i]);
+      return '<button class="vb" data-st="sptip" data-k="'+esc(tip)+'" title="'+esc(tip)+'"><span class="vbar'+(ws[i]?'':' zero')+'" style="height:'+(ws[i]?Math.max(4,ws[i]/max*100):0)+'%"></span><span class="vl">'+(i%2?'':isoWeek(w.f))+'</span></button>'; }).join("")+'</div>'+
+    '<div class="small" style="margin-top:2px">Zahlen unter den Balken = Kalenderwoche</div>';
+  if(inP.length){
+    const by=new Map(); inP.forEach(r=>by.set(r.shop,(by.get(r.shop)||0)+r.total));
+    const l=[...by].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
+    h+='<div class="ch" style="margin-top:12px"><b>Nach Geschäft</b></div><div class="hbars">'+l.map(x=>'<div class="hb"><div class="hl"><span>'+esc(x.name)+'</span><b>'+euro(x.n)+'</b></div><div class="ht"><span style="width:'+Math.max(2,Math.round(x.n/l[0].n*100))+'%"></span></div></div>').join("")+'</div>';
+  }
+  return h+'</div>';
+}
+// Was laut Kassenzetteln wirklich gekauft wurde: je Artikel Anzahl, Menge und Betrag
+function boughtHtml(p, inStore){
+  const st=S.st, lines=(st.lines||[]).filter(l=>inStore(l) && l.at>=p.from && l.at<p.to);
+  if(!(st.lines||[]).length) return "";
+  if(!lines.length) return '<div class="card-s"><div class="ch"><b>Laut Kassenzettel gekauft</b></div><div class="small">In diesem Zeitraum gibt es keinen Kassenzettel'+(st.store?' für '+esc(storeName(st.store)):'')+'.</div></div>';
+  const by=new Map();
+  lines.forEach(l=>{ const it=l.itemId && S.items.find(i=>i.id===l.itemId); const key=it?"i:"+it.id:"r:"+l.raw.toLowerCase();
+    const e=by.get(key)||{name:it?it.name:l.raw, raw:!it, n:0, kg:0, stk:0, sum:0, shops:new Set()};
+    e.n++; e.sum+=l.price; if(l.unit==="kg") e.kg+=l.qty; else e.stk+=l.qty; e.shops.add(l.shop); by.set(key,e); });
+  const list=[...by.values()].sort((a,b)=>b.sum-a.sum || b.n-a.n);
+  const sort=st.boughtSort||"sum";
+  if(sort==="n") list.sort((a,b)=>b.n-a.n || b.stk-a.stk || b.kg-a.kg || b.sum-a.sum);
+  else if(sort==="name") list.sort((a,b)=>a.name.localeCompare(b.name,"de"));
+  const shown=st.boughtAll?list:list.slice(0,12), total=lines.reduce((a,l)=>a+l.price,0);
+  const amt=e=>[e.stk?(Math.round(e.stk*10)/10).toLocaleString("de-DE")+" Stück":"", e.kg?(Math.round(e.kg*1000)/1000).toLocaleString("de-DE")+" kg":""].filter(Boolean).join(" + ");
+  return '<div class="card-s"><div class="ch"><b>Laut Kassenzettel gekauft</b><span>'+list.length+' Artikel · '+euro(total)+'</span></div>'+
+    '<div class="mini-seg bseg"><button class="'+(sort==="sum"?'on':'')+'" data-st="bsort" data-k="sum">Betrag</button><button class="'+(sort==="n"?'on':'')+'" data-st="bsort" data-k="n">Menge</button><button class="'+(sort==="name"?'on':'')+'" data-st="bsort" data-k="name">A–Z</button></div>'+
+    '<div class="blist">'+shown.map(e=>'<div class="bl"><span>'+(e.raw?'<i>'+esc(e.name)+'</i>':esc(e.name))+'<small>'+esc(amt(e))+(st.store?'':' · '+[...e.shops].map(esc).join(", "))+'</small></span><b>'+euro(e.sum)+'</b></div>').join("")+'</div>'+
+    (list.length>12?'<button class="linkbtn" data-st="ball">'+(st.boughtAll?'Weniger anzeigen':'Alle '+list.length+' anzeigen')+'</button>':'')+
+    (list.some(e=>e.raw)?'<div class="small" style="margin-top:6px"><i>Kursiv</i> = Bon-Text ohne zugeordneten Artikel.</div>':'')+'</div>';
 }
 function renderStats(){
   const st=S.st, h=$("head"), app=$("app");
@@ -407,56 +497,13 @@ function renderStats(){
     '<div class="pnav"><button data-st="prev" aria-label="früher">‹</button><b>'+esc(p.label)+'</b><button data-st="next" aria-label="später"'+(st.offset>=0?' disabled':'')+'>›</button></div>'+
     '<div class="shopbar stshops"><button class="'+(st.store?'':'on')+'" data-st="store" data-k="">Alle Läden</button>'+stores().map(s=>'<button class="'+(st.store===s.id?'on':'')+'" data-st="store" data-k="'+esc(s.id)+'">'+esc(s.name)+'</button>').join("")+'</div>';
   if(st.err){ app.innerHTML='<div class="empty">'+esc(st.err)+'<br><button class="linkbtn" data-st="reload">Nochmal versuchen</button></div>'; return; }
-  if(!st.rows){ app.innerHTML='<div class="empty"><div class="spin"></div>Statistik wird geladen …</div>'; return; }
+  if(!st.lines){ app.innerHTML='<div class="empty"><div class="spin"></div>Statistik wird geladen …</div>'; return; }
+  // Grundlage sind nur noch die Kassenzettel
   const inStore = r => !st.store || r.store===st.store;
-  const rows = st.rows.filter(r=>inStore(r) && r.at>=p.from && r.at<p.to);
   const prevP = period(st.range, st.offset-1);
-  const prevN = st.rows.filter(r=>inStore(r) && r.at>=prevP.from && r.at<prevP.to).length;
   const prevName = {week:"Vorwoche", month:"Vormonat", year:"Vorjahr"}[st.range];
-  const days = new Set(rows.map(r=>dayKey(r.at))).size;
-  const items = new Map(); rows.forEach(r=>{ const e=items.get(r.id)||{id:r.id,name:r.name,store:r.store,n:0}; e.n++; items.set(r.id,e); });
-  const cur = id => S.items.find(i=>i.id===id);
-  let html='';
-  // Kennzahlen
-  const diff = rows.length-prevN;
-  html+='<div class="tiles">'+
-    '<div class="tile"><div class="tv">'+rows.length+'</div><div class="tl">Sachen gekauft</div>'+(prevN||rows.length?'<div class="td">'+(diff===0?'wie':(diff>0?'+':'−')+Math.abs(diff)+' ggü.')+' '+prevName+'</div>':'')+'</div>'+
-    '<div class="tile"><div class="tv">'+items.size+'</div><div class="tl">verschiedene Artikel</div></div>'+
-    '<div class="tile"><div class="tv">'+days+'</div><div class="tl">Einkaufstage</div></div>'+
-    '<div class="tile"><div class="tv">'+(days?(Math.round(rows.length/days*10)/10).toLocaleString("de-DE"):"–")+'</div><div class="tl">Sachen pro Einkaufstag</div></div></div>';
-  if(!rows.length){
-    html+='<div class="card-s"><div class="empty" style="padding:24px 8px">In diesem Zeitraum wurde '+(st.store?'bei '+esc(storeName(st.store))+' ':'')+'nichts abgehakt.</div></div>';
-  } else {
-    // Verlauf
-    const counts=p.buckets.map(b=>rows.filter(r=>r.at>=b.from && r.at<b.to).length), max=Math.max(1,...counts);
-    html+='<div class="card-s"><div class="ch"><b>Verlauf</b><span id="sttip">'+(st.tip?esc(st.tip):'Balken antippen für Details')+'</span></div>'+
-      '<div class="vbars r-'+st.range+'"><span class="ymax">'+max+'</span>'+p.buckets.map((b,i)=>'<button class="vb" data-st="tip" data-k="'+esc(b.tip+": "+counts[i]+" "+(counts[i]===1?"Sache":"Sachen"))+'" title="'+esc(b.tip+": "+counts[i])+'">'+
-        '<span class="vbar'+(counts[i]?'':' zero')+'" style="height:'+(counts[i]?Math.max(4,counts[i]/max*100):0)+'%"></span><span class="vl">'+esc(b.label)+'</span></button>').join("")+'</div></div>';
-    // Am häufigsten gekauft
-    const top=[...items.values()].sort((a,b)=>b.n-a.n || a.name.localeCompare(b.name,"de"));
-    const shown=st.topAll?top:top.slice(0,10);
-    html+='<div class="card-s"><div class="ch"><b>Am häufigsten gekauft</b><span>'+top.length+' Artikel</span></div>'+
-      barsHtml(shown.map(x=>{ const c=cur(x.id); return {name:c?c.name:x.name, sub:st.store?"":storeName(x.store), n:x.n}; }), top[0].n)+
-      (top.length>10?'<button class="linkbtn" data-st="topall">'+(st.topAll?'Weniger anzeigen':'Alle '+top.length+' anzeigen')+'</button>':'')+'</div>';
-    // Warengruppen
-    const grp=new Map(); rows.forEach(r=>{ const c=cur(r.id); const g=G.groupOf(c||{name:r.name,cat:r.cat}); grp.set(g,(grp.get(g)||0)+1); });
-    const gl=[...grp].map(([g,n])=>({name:G.groupName(g),n})).sort((a,b)=>b.n-a.n);
-    html+='<div class="card-s"><div class="ch"><b>Nach Warengruppe</b></div>'+barsHtml(gl, gl[0].n)+'</div>';
-    // Läden und Labels
-    if(!st.store){
-      const sl=stores().map(s=>({name:s.name,n:rows.filter(r=>r.store===s.id).length})).filter(x=>x.n).sort((a,b)=>b.n-a.n);
-      if(sl.length>1) html+='<div class="card-s"><div class="ch"><b>Nach Laden</b></div>'+barsHtml(sl, sl[0].n)+'</div>';
-    }
-    const lab=new Map(); rows.forEach(r=>r.shops.forEach(l=>lab.set(l,(lab.get(l)||0)+1)));
-    if(lab.size){ const ll=[...lab].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
-      html+='<div class="card-s"><div class="ch"><b>Nach Label</b><span>nur Sachen mit Label</span></div>'+barsHtml(ll, ll[0].n)+'</div>'; }
-    // Wer hat abgehakt
-    const pp=new Map(); rows.forEach(r=>{ const k=r.person||"ohne Angabe"; pp.set(k,(pp.get(k)||0)+1); });
-    const pl=[...pp].map(([name,n])=>({name,n})).sort((a,b)=>b.n-a.n);
-    html+='<div class="card-s"><div class="ch"><b>Wer hat abgehakt</b></div>'+barsHtml(pl, pl[0].n)+'</div>';
-  }
-  html+='<div class="small" style="margin:14px 6px 0">Gezählt wird jedes Abhaken'+(st.first?' seit '+st.first.toLocaleDateString("de-DE"):'')+
-    '. Käufe aus der alten Apple-Notiz haben kein Datum und fehlen hier – sie stecken nur in der „×“-Zahl bei „Schon mal gekauft“.</div>';
+  let html=spendHtml(p, prevP, prevName, inStore)+boughtHtml(p, inStore);
+  if((st.receipts||[]).length) html+='<div class="small" style="margin:14px 6px 0">Grundlage sind eure Kassenzettel. Einkäufe ohne hochgeladenen Bon fehlen hier.</div>';
   app.innerHTML=html;
 }
 document.addEventListener("click",e=>{
@@ -467,13 +514,15 @@ document.addEventListener("click",e=>{
   else if(k==="prev"){ st.offset--; st.tip=""; renderStats(); }
   else if(k==="next"){ if(st.offset<0) st.offset++; st.tip=""; renderStats(); }
   else if(k==="store"){ st.store=b.dataset.k; st.tip=""; renderStats(); }
-  else if(k==="topall"){ st.topAll=!st.topAll; renderStats(); }
+  else if(k==="ball"){ st.boughtAll=!st.boughtAll; renderStats(); }
+  else if(k==="bsort"){ st.boughtSort=b.dataset.k; renderStats(); }
   else if(k==="reload") loadStats();
-  else if(k==="tip"){ st.tip=b.dataset.k; const t=$("sttip"); if(t) t.textContent=st.tip;
-    document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
+  else if(k==="sptip"){ const t=$("sptip"); if(t) t.textContent=b.dataset.k; document.querySelectorAll(".vb.sel").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
 });
 
 /* ---------- Ereignisse ---------- */
+// Kennzeichen-Knöpfe neben dem Eingabefeld: Fokus (und Tastatur) im Feld lassen
+["mousedown","pointerdown"].forEach(ev=>document.addEventListener(ev,e=>{ if(e.target.closest("form.add .pb")) e.preventDefault(); }));
 let pressT=null, pressed=false;
 document.addEventListener("pointerdown",e=>{
   const b=e.target.closest("[data-readd]"); if(!b) return;
@@ -485,7 +534,8 @@ document.addEventListener("contextmenu",e=>{ if(e.target.closest("[data-readd]")
 
 document.addEventListener("click",e=>{
   if($("modal").contains(e.target)) return;
-  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop]"); if(!t) return;
+  const t=e.target.closest("[data-store],[data-tick],[data-edit],[data-readd],[data-sugg],[data-act],[data-sort],[data-me],[data-filter],[data-drop],[data-addprio]"); if(!t) return;
+  if(t.dataset.addprio){ S.addPrio = S.addPrio===t.dataset.addprio ? "" : t.dataset.addprio; renderPrioBar(); return; }
   if(t.dataset.drop){ dropItem(t.dataset.drop); return; }
   if(t.dataset.filter!=null){ const l=t.dataset.filter, cur=S.filter[S.cur]||[];
     S.filter[S.cur] = !l ? [] : cur.includes(l) ? cur.filter(x=>x!==l) : cur.concat([l]); render(); return; }
@@ -495,12 +545,23 @@ document.addEventListener("click",e=>{
   if(t.dataset.tick) toggle(t.dataset.tick);
   else if(t.dataset.edit) openEdit(t.dataset.edit);
   else if(t.dataset.readd){ if(pressed){ pressed=false; return; } const it=S.items.find(i=>i.id===t.dataset.readd); if(it){ addItem(it.name,it.store); toast("„"+it.name+"“ wieder auf der Liste"); } }
-  else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){ S.q=""; addItem(it.name,S.cur); const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
+  else if(t.dataset.sugg){ const it=S.items.find(i=>i.id===t.dataset.sugg); if(it){
+    // getippte Labels (z. B. „@Lidl“) mitnehmen; der Artikel kommt in seinen eigenen Laden
+    const at=S.q.search(/\s*@/); const labels=at<0?"":S.q.slice(at);
+    S.q=""; addItem(it.name+labels, it.store);
+    if(it.store!==S.cur && it.done) toast("„"+it.name+"“ bei "+storeName(it.store)+" eingetragen");
+    const q=$("q"); if(q){ q.value=""; q.focus(); } renderSugg(); } }
   else if(t.dataset.act==="menu") openMenu();
   else if(t.dataset.act==="stats") openStats();
+  else if(t.dataset.act==="receipts") window.Receipts.open();
+  else if(t.dataset.act==="prices") window.Prices.open();
   else if(t.dataset.act==="allHist"){ S.showAllHist=!S.showAllHist; saveView(); render(); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && $("modal").innerHTML) closeModal(); });
+
+/* ---------- Für Kassenzettel (receipt.js) ---------- */
+window.App = { PEN, S, api, esc, toast, sheet, closeModal, stores, storeName, labelsOf, render, refresh, $, norm, G, openEdit,
+  close(){ S.view="list"; $("head").innerHTML=""; render(); window.scrollTo(0,0); } };
 
 /* ---------- Start ---------- */
 loadLocal(); fixCur(); render(); refresh(true);

@@ -155,36 +155,14 @@ await page.evaluate(() => localStorage.removeItem("einkaufsliste.v1")); await pa
 await page.click("[data-store=supermarkt]"); await page.waitForTimeout(150);
 ok(await histMode(page) === "group", "… und ohne Listen-Zwischenspeicher");
 
-// Statistik
-await page.click("[data-act=stats]"); await page.waitForSelector(".tiles");
-const tile = async i => (await page.locator(".tile .tv").nth(i).textContent()).trim();
-// erwartete Zahlen direkt aus der Datenbank (der Test hat vorher selbst schon „Skyr“ abgehakt)
-const mon = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.toISOString(); })();
-const wk = db.prepare("SELECT COUNT(*) AS n, COUNT(DISTINCT item_id) AS a FROM purchases WHERE at >= ?").get(mon);
-ok(await tile(0) === String(wk.n) && await tile(1) === String(wk.a), "Woche: " + wk.n + " Käufe, " + wk.a + " Artikel – angezeigt " + await tile(0) + "/" + await tile(1));
-ok((await page.locator(".hbars").first().locator(".hl").first().textContent()).includes("Bananen"), "Top-Artikel: Bananen");
-ok((await page.locator(".card-s .ch b", { hasText: "Wer hat abgehakt" }).count()) === 1, "Bereich „Wer hat abgehakt“");
-ok((await page.locator(".card-s .ch b", { hasText: "Nach Label" }).count()) === 1, "Bereich „Nach Label“");
-await page.locator(".vb").nth((new Date().getDay() + 6) % 7).click();
-ok(/: 3 Sachen|: 4 Sachen|: 1 Sache/.test(await page.textContent("#sttip")), "Balken antippen zeigt Wert: " + await page.textContent("#sttip"));
-await page.screenshot({ path: "/tmp/e2e-stats-week.png", fullPage: true });
-await page.click("[data-st=prev]"); await page.waitForTimeout(100);
-ok(await tile(0) === "1", "Vorwoche: 1 Kauf – " + await tile(0));
-await page.click("[data-st=range][data-k=year]"); await page.waitForTimeout(100);
-const yr = db.prepare("SELECT COUNT(*) AS n FROM purchases WHERE at >= ?").get(new Date(new Date().getFullYear(), 0, 1).toISOString()).n;
-ok(await tile(0) === String(yr), "Jahr: " + yr + " Käufe – angezeigt " + await tile(0));
-await page.screenshot({ path: "/tmp/e2e-stats-year.png", fullPage: true });
-await page.click("[data-st=store][data-k=drogerie]"); await page.waitForTimeout(100);
-ok(await tile(0) === "1", "Jahr, nur Drogerie: 1 Kauf");
-await page.click("[data-st=range][data-k=month]"); await page.waitForTimeout(100);
-await page.click("[data-st=store][data-k='']"); await page.click("[data-st=prev]"); await page.click("[data-st=prev]"); await page.click("[data-st=prev]"); await page.waitForTimeout(100);
-ok(/nichts abgehakt/.test(await page.textContent("#app")), "leerer Monat zeigt Hinweis");
+// Statistik (nur noch aus Kassenzetteln; ohne Bons ein Hinweis)
+await page.click("[data-act=stats]"); await page.waitForSelector(".card-s");
+ok(/Sobald ihr Kassenzettel hochladet/.test(await page.textContent("#app")) && (await page.locator(".tiles").count()) === 0, "Statistik ohne Kassenzettel: Hinweis, keine alten Kennzahlen");
 await page.click("[data-st=back]"); await page.waitForSelector("#q");
-ok((await page.locator("#q").count()) === 1 && (await page.locator(".tiles").count()) === 0, "zurück zur Liste");
-// Abhaken in der Liste landet in der Statistik
+// Abhaken wird weiter gespeichert (für die Häufigkeit)
 const before2 = db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n;
 await page.click(".row .tick >> nth=0"); await page.waitForTimeout(600);
-ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "Abhaken erzeugt Kauf in der Statistik");
+ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "Abhaken wird gespeichert");
 
 // Von der Liste nehmen (×): kein Kauf, landet unter „Schon mal gekauft“, Rückgängig holt es zurück
 {
@@ -201,6 +179,53 @@ ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "A
   await page.click("#e_drop"); await page.waitForTimeout(600);
   ok(db.prepare("SELECT done, buy_count FROM items WHERE name='Pesto'").get().done === 1, "auch über den Dialog „Von der Liste nehmen“");
   await page.screenshot({ path: "/tmp/e2e-drop.png" });
+}
+
+{
+  await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
+// Autovervollständigung: schon ab einem Buchstaben, Wortanfänge, alle Läden, Labels bleiben erhalten
+  await page.fill("#q", "d");
+  const ac1 = await page.locator("#sugg .ac button").allTextContents();
+  ok(ac1.length === 1 && /^Duschgel.*Drogerie/.test(ac1[0]), "„d“ → Duschgel (Drogerie): " + ac1.join(" | "));
+  await page.fill("#q", "butt");
+  ok(/steht schon drauf/.test(await page.locator("#sugg .ac button", { hasText: "Butter" }).textContent()), "offene Sache: „steht schon drauf“");
+  await page.screenshot({ path: "/tmp/e2e-ac-open.png" });
+  await page.fill("#q", "kart @Aldi");
+  ok((await page.locator("#sugg .ac button b").first().textContent()) === "Kart", "getippter Teil fett");
+  await page.click("#sugg .ac button"); await page.waitForTimeout(300);
+  const kart = db.prepare("SELECT done, shop FROM items WHERE id='f'").get();
+  ok(kart.done === 0 && kart.shop === "Aldi" && await page.inputValue("#q") === "", "Kartoffeln mit Label @Aldi wieder auf der Liste");
+  await page.fill("#q", "dusch"); await page.click("#sugg .ac button"); await page.waitForTimeout(300);
+  ok(db.prepare("SELECT done, store FROM items WHERE id='g'").get().done === 0 && db.prepare("SELECT COUNT(*) n FROM items WHERE name='Duschgel'").get().n === 1, "Duschgel kommt in seinen eigenen Laden (Drogerie), kein Doppel");
+  await page.screenshot({ path: "/tmp/e2e-ac.png" });
+}
+
+// Kennzeichen „Dringend“ / „Vorrat“
+{
+  await page.click("[data-store=supermarkt]"); await page.waitForTimeout(200);
+  await page.click(".row:has-text('Maggi') .more"); await page.waitForSelector("#e_pr");
+  await page.click("#e_pr [data-pr=dringend]"); await page.click("#e_ok"); await page.waitForTimeout(400);
+  ok((await page.locator(".grp.urg").count()) === 1 && /Maggi/.test(await page.locator(".list.urgl").textContent()), "Dringend-Block oben mit Maggi");
+  ok(db.prepare("SELECT prio FROM items WHERE id='b'").get().prio === "dringend", "dringend gespeichert");
+  await page.click(".row:has-text('Eier') .more"); await page.waitForSelector("#e_pr");
+  await page.click("#e_pr [data-pr=vorrat]"); await page.click("#e_ok"); await page.waitForTimeout(400);
+  ok((await page.locator(".row:has-text('Eier') .prio.p-vorrat").count()) === 1, "Eier mit Kennzeichen Vorrat");
+  await page.screenshot({ path: "/tmp/e2e-prio.png" });
+  await page.click(".row .tick >> text=Maggi"); await page.waitForTimeout(500);
+  ok(db.prepare("SELECT prio, done FROM items WHERE id='b'").get().prio === "" && (await page.locator(".grp.urg").count()) === 0, "abgehakt → dringend weg");
+  await page.click(".row:has-text('Eier') .drop"); await page.waitForTimeout(500);
+  ok(db.prepare("SELECT prio FROM items WHERE name='Eier'").get().prio === "", "von der Liste genommen → Vorrat weg");
+  // beim Eintragen: Knopf wählen, dann eintippen
+  await page.click("[data-addprio=dringend]");
+  ok((await page.locator("[data-addprio=dringend].on").count()) === 1, "Knopf Dringend aktiv");
+  await page.fill("#q", "Mehl"); await page.press("#q", "Enter"); await page.waitForTimeout(400);
+  ok(db.prepare("SELECT prio FROM items WHERE name='Mehl'").get().prio === "dringend" && (await page.locator("[data-addprio].on").count()) === 0, "neuer Eintrag dringend, Knopf danach wieder aus");
+  await page.click("[data-addprio=vorrat]"); await page.fill("#q", "kart"); await page.click("#sugg .ac button"); await page.waitForTimeout(400);
+  ok(db.prepare("SELECT prio FROM items WHERE id='f'").get().prio === "vorrat", "Vorrat über die Autovervollständigung (steht schon drauf → Kennzeichen gesetzt)");
+  await page.click("[data-addprio=vorrat]"); await page.click("[data-addprio=vorrat]");
+  ok((await page.locator("[data-addprio].on").count()) === 0, "Knopf lässt sich wieder abwählen");
+  await page.click("[data-addprio=dringend]");
+  await page.screenshot({ path: "/tmp/e2e-addprio.png" });
 }
 
 ok(errors.length === 0, "keine Fehler in der Browser-Konsole " + errors.join(" | "));
