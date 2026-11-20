@@ -254,7 +254,9 @@ function render(){
 function rowHtml(i){
   const d=[]; if(i.note) d.push(esc(i.note)); if(i.addedBy && i.addedBy!==S.me) d.push('<span class="by">von '+esc(i.addedBy)+'</span>');
   const of=window.Prices && window.Prices.badge(i.id); if(of) d.push(of);
-  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t"><div class="n">'+esc(i.name)+prioTag(i)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span></button><button class="more" data-edit="'+esc(i.id)+'" aria-label="Bearbeiten">'+PEN+'</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
+  // Abhaken nur über den Kreis; Name und Stift öffnen „Bearbeiten“
+  return '<div class="row"><button class="tick" data-tick="'+esc(i.id)+'" aria-label="„'+esc(i.name)+'“ abhaken"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>'+
+    '<button class="more" data-edit="'+esc(i.id)+'" aria-label="„'+esc(i.name)+'“ bearbeiten"><span class="t"><div class="n">'+esc(i.name)+prioTag(i)+tags(i)+'</div>'+(d.length?'<div class="d">'+d.join(" · ")+'</div>':'')+'</span>'+PEN+'</button><button class="drop" data-drop="'+esc(i.id)+'" aria-label="Von der Liste nehmen (nicht gekauft)" title="Von der Liste nehmen">×</button></div>';
 }
 
 /* ---------- Dialoge ---------- */

@@ -76,7 +76,11 @@ ok((await page.locator("#sugg button", { hasText: "Haferflocken" }).count()) ===
 await page.click("#sugg button"); await page.waitForTimeout(300);
 ok((await page.locator(".row .n", { hasText: "Haferflocken" }).count()) === 1, "Vorschlag übernommen");
 
-await page.click(".row .tick >> text=Skyr"); await page.waitForTimeout(600);
+// Antippen des Namens öffnet „Bearbeiten“ (hakt nicht ab)
+await page.click(".row .n >> text=Skyr"); await page.waitForSelector("#e_name");
+ok(db.prepare("SELECT done FROM items WHERE name='Skyr'").get().done === 0, "Name antippen öffnet Bearbeiten, nicht abgehakt");
+await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+await page.click(".row:has-text('Skyr') .tick"); await page.waitForTimeout(600);
 ok(db.prepare("SELECT buy_count FROM items WHERE id='a'").get().buy_count === 1, "Abhaken zählt Häufigkeit hoch");
 ok((await page.locator(".row .n", { hasText: "Skyr" }).count()) === 0, "Skyr abgehakt");
 ok((await page.locator(".hist button", { hasText: "Skyr" }).count()) === 1, "Skyr unter „Schon mal gekauft“");
@@ -211,7 +215,7 @@ ok(db.prepare("SELECT COUNT(*) AS n FROM purchases").get().n === before2 + 1, "A
   await page.click("#e_pr [data-pr=vorrat]"); await page.click("#e_ok"); await page.waitForTimeout(400);
   ok((await page.locator(".row:has-text('Eier') .prio.p-vorrat").count()) === 1, "Eier mit Kennzeichen Vorrat");
   await page.screenshot({ path: "/tmp/e2e-prio.png" });
-  await page.click(".row .tick >> text=Maggi"); await page.waitForTimeout(500);
+  await page.click(".row:has-text('Maggi') .tick"); await page.waitForTimeout(500);
   ok(db.prepare("SELECT prio, done FROM items WHERE id='b'").get().prio === "" && (await page.locator(".grp.urg").count()) === 0, "abgehakt → dringend weg");
   await page.click(".row:has-text('Eier') .drop"); await page.waitForTimeout(500);
   ok(db.prepare("SELECT prio FROM items WHERE name='Eier'").get().prio === "", "von der Liste genommen → Vorrat weg");

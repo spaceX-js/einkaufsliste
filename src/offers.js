@@ -58,11 +58,24 @@ function wordMatch(r, t) {
   return false;
 }
 // Passt ein Angebot zum Suchbegriff? Jedes Wort des Begriffs muss im Angebot vorkommen.
-export function offerMatches(query, offerText) {
+export function offerMatches(query, offerText, productName) {
   const q = words(query), t = words(offerText);
   if (!q.length) return false;
-  return q.every(w => t.some(x => wordMatch(x, w)));
+  if (!q.every(w => t.some(x => wordMatch(x, w)))) return false;
+  // Abwandlungen eines Produkts aussortieren: Bei „Nutella“ kein Nutella-Eis und keine Nutella-Kekse –
+  // außer, das steht so im Suchbegriff (z. B. „Nutella Biscuits“).
+  if (productName != null) {
+    const pn = words(productName);
+    const isVariant = w => VARIANT.some(v => w === v || (v.length >= 4 && w.startsWith(v)) || (v.length >= 5 && w.endsWith(v))) ||
+      (/^eis/.test(w) && !/^eisberg/.test(w)) || /(speise|milch|frucht|stiel|soft)eis$/.test(w);
+    const other = pn.find(w => isVariant(w) && !q.some(x => wordMatch(w, x) || wordMatch(x, w)));
+    if (other) return false;
+  }
+  return true;
 }
+// Wörter, die aus einem Produkt ein anderes machen (Eis, Kekse, Riegel …)
+const VARIANT = ["icecream", "ice", "keks", "biscuit", "cookie", "waffel", "riegel", "kuchen", "torte", "muffin", "croissant",
+  "praline", "bites", "snack", "drink", "shake", "ready", "bready", "crepe", "donut"];
 export function isBio(text) { return /\bbio\b|\bbioland\b|\bdemeter\b|\bnaturland\b|\bökologisch|\boeko/i.test(String(text || "")); }
 
 /* ---------- Angebot aus marktguru-Daten ---------- */
@@ -102,7 +115,7 @@ export function normalizeOffer(o, shops) {
   const to = dates.length ? dates.map(d => String(d.to).slice(0, 10)).sort().pop() : "";
   const text = [brand, o.product && o.product.name, o.description].filter(Boolean).join(" ");
   const tidy = v => String(v || "").replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
-  return { id: String(o.id || ""), shop, adv: adv.join("/"), title: tidy(title).slice(0, 140), brand: tidy(brand).slice(0, 60), price: cents(o.price), oldPrice: cents(o.oldPrice),
+  return { id: String(o.id || ""), productName: [o.product && o.product.name, brand].filter(Boolean).join(" "), shop, adv: adv.join("/"), title: tidy(title).slice(0, 140), brand: tidy(brand).slice(0, 60), price: cents(o.price), oldPrice: cents(o.oldPrice),
     refPrice, refUnit, amount: amount.slice(0, 40), bio: isBio(text) ? 1 : 0, from, to, text };
 }
 
@@ -127,7 +140,7 @@ export async function checkItem(env, item, config, query) {
     for (const raw of list) {
       const o = normalizeOffer(raw, shops);
       if (!o.id || !o.shop || !zshops.includes(o.shop) || o.price == null) continue;
-      if (!offerMatches(query, o.text)) continue;
+      if (!offerMatches(query, o.text, o.productName)) continue;
       if (!found.has(o.id)) found.set(o.id, o);
     }
   }

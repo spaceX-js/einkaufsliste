@@ -545,6 +545,14 @@ test("Angebote: Suchbegriff, Treffer-Prüfung, Umwandlung", () => {
   assert.ok(offerMatches("Joghurt", "Weihenstephan Naturjoghurt"));
   assert.ok(offerMatches("Bananen", "Bio Banane"));
   assert.ok(offerMatches("Passierte Tomaten", "Tomaten passiert"));      // Wortreihenfolge egal
+  // Abwandlungen: bei „Nutella“ nur Nutella selbst
+  assert.ok(offerMatches("Nutella", "Ferrero Nutella Nuss-Nougat-Creme 450 g", "Nutella Ferrero"));
+  for (const pn of ["Nutella Biscuits", "Nutella Eis", "Nutella Ice Cream", "Nutella B-ready", "Nutella Muffins", "Nutella Stieleis"])
+    assert.ok(!offerMatches("Nutella", "Ferrero " + pn, pn + " Ferrero"), pn);
+  assert.ok(offerMatches("Nutella Biscuits", "Ferrero Nutella Biscuits", "Nutella Biscuits Ferrero"));   // ausdrücklich gesucht
+  assert.ok(offerMatches("Salat", "Eisbergsalat Kl. I", "Eisbergsalat"));
+  assert.ok(offerMatches("Hähnchen", "Hähnchen mit Reis", "Hähnchen mit Reis"));
+  assert.ok(offerMatches("Eis", "Langnese Eis am Stiel", "Cremissimo Eis Langnese"));
 });
 test("Angebote: Umwandlung der marktguru-Daten", () => {
   const o = normalizeOffer(mgOffer(7, "Netto Marken-Discount", "Tomatenmark", 0.49, { old: 0.79, ref: 2.45, brand: "Gut & Günstig", desc: "Bio, 200 g" }), ["Lidl", "Netto"]);
