@@ -73,9 +73,22 @@ function kindOf(name) {
   return "item";
 }
 
+// Die Bilderkennung schreibt Name und Preis manchmal untereinander („Schnittlauch“ / „0,89 A“).
+// Dann gehört eine Zeile, die nur aus einem Betrag besteht, ans Ende der Zeile davor.
+const PRICE_ONLY = new RegExp("^-?\\s*€?\\s?(?:" + AMT + ")\\s*(?:€|EUR)?\\s*\\*?\\s*§?\\s*[A-Z]?\\s*\\d?\\s*\\*?$");
+export function joinPriceLines(lines) {
+  const out = [];
+  for (const l of lines) {
+    const prev = out[out.length - 1];
+    if (prev && PRICE_ONLY.test(l) && !PRICE_END.test(prev) && !QTY_LINE.test(prev) && /[A-Za-zÄÖÜäöüß]/.test(prev) && !/^-{3,}$/.test(prev)) out[out.length - 1] = prev + " " + l;
+    else out.push(l);
+  }
+  return out;
+}
+
 // Haupt-Funktion: Text → { shop, at, total, sum, lines }
 export function parseReceipt(text) {
-  const all = String(text || "").split(/\r?\n/).map(cleanLine).filter(Boolean);
+  const all = joinPriceLines(String(text || "").split(/\r?\n/).map(cleanLine).filter(Boolean));
   const shop = detectShop(all.join("\n"));
   const date = detectDate(all);
   const lines = [];

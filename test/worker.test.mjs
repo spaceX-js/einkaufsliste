@@ -464,6 +464,10 @@ test("Kassenzettel lesen: Lidl, dm und Rossmann", () => {
   assert.equal(ro.total, 940); assert.equal(ro.sub, 1040); assert.equal(ro.sum, 1040);
   assert.deepEqual(ro.lines.map(x => [x.ean, x.raw, x.price]), [["4068134245397", "BABYDR. PFLAUME-BA", 45], ["4001638590464", "WELEDA HYDRATING B", 995]]);
   assert.equal(rawKey("BIO  KOERN. FRISCH"), "bio koern.frisch");
+  // Bilderkennung schreibt Name und Preis untereinander (echter Lidl-Screenshot)
+  const sep = parseReceipt("Kölnstraße 110\n50354 Hürth-Hermülheim\n\nBio Avocado 2Stück\n2,29 A\nLidl Plus Rabatt\n-0,34\nSchnittlauch\n0,89 A\nLaugenbrezel 10er\n1,99 A\nFusilli\n0,69 A\nPreisvorteil\n-0,35\nDoritos Sweet Chili\n1,11 A\n-------------\nzu zahlen\n6,28\nKreditkarte\n6,28\n\nMWST% MWST + Netto = Brutto\nA 7 % 0,41 5,87 6,28\nSumme 0,41 5,87 6,28\n| Mit Lidl Plus |\n| 0,34 EUR gespart |\n3643 055703/05 21.11.26 13:05\nBetrag 6,28 EUR");
+  assert.deepEqual([sep.shop, sep.at, sep.total, sep.sum, sep.lines.map(l => l.raw + " " + l.price).join("; ")],
+    ["Lidl", "2026-11-21T13:05", 628, 628, "Bio Avocado 2Stück 195; Schnittlauch 89; Laugenbrezel 10er 199; Fusilli 34; Doritos Sweet Chili 111"]);
   // Bilderkennung liefert manchmal eine Tabelle mit Punkt statt Komma
   const md = parseReceipt("**LIDL**\n| Artikel | Preis |\n|---|---|\n| Bio Avocado 2Stück | 2.29 A |\n| Lidl Plus Rabatt | -0.34 |\n| Schnittlauch | 0.89 A |\n| Fusilli | 0.69 A |\n| Preisvorteil | -0.35 |\n- Doritos Sweet Chili 1.11 A\n| zu zahlen | 6.28 |\n21.11.26 13:05");
   assert.deepEqual([md.shop, md.total, md.sum, md.lines.map(l => l.raw + " " + l.price).join("; ")], ["Lidl", 628, 429, "Bio Avocado 2Stück 195; Schnittlauch 89; Fusilli 34; Doritos Sweet Chili 111"]);
