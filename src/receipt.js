@@ -27,18 +27,22 @@ const SHOPS = [
 ];
 export const KNOWN_SHOPS = SHOPS.map(s => s[0]);
 
-const cents = s => Math.round(parseFloat(String(s).replace(/\./g, "").replace(",", ".")) * 100);
+// Beträge mit Komma (1,29) oder – vom Foto abgeschrieben – mit Punkt (1.29)
+const cents = s => { s = String(s); s = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s; return Math.round(parseFloat(s) * 100); };
 const num = s => parseFloat(String(s).replace(",", "."));
+const AMT = "\\d{1,4}(?:\\.\\d{3})*,\\d{2}|\\d{1,4}\\.\\d{2}";
 
 // Zeile vereinheitlichen: Sonderzeichen aus PDFs (Rossmann nutzt U+FE0F statt Leerzeichen), mehrfache Leerzeichen
 export function cleanLine(s) {
-  return String(s || "").replace(/[️   \t]/g, " ").replace(/[​-‍﻿]/g, "").replace(/\s+/g, " ").trim();
+  return String(s || "")
+    // Formatierung, die eine Bilderkennung manchmal mitliefert: Tabellen-Striche, Fettdruck, Aufzählungszeichen
+    .replace(/^\s*\|?\s*[-:| ]{3,}\|?\s*$/, "").replace(/\|/g, " ").replace(/\*\*|__|`/g, "").replace(/^\s*(?:[-•*]\s+|\d+\.\s+(?=\D))/, "").replace(/[️   \t]/g, " ").replace(/[​-‍﻿]/g, "").replace(/\s+/g, " ").trim();
 }
 // Schlüssel für gelernte Zuordnungen: Kleinbuchstaben, ohne Satzzeichen-Unterschiede
 export function rawKey(s) { return cleanLine(s).toLowerCase().replace(/\s*([.,/+&-])\s*/g, "$1").slice(0, 80); }
 
-const PRICE_END = /^(.*?)\s*(-)?\s*€?\s?(\d{1,4}(?:\.\d{3})*,\d{2})\s*(?:€|EUR)?\s*(\*?\s*§?\s*[A-Z]?\s*\d?\s*\*?)$/;
-const QTY_LINE = /^(\d+(?:,\d+)?)\s*(stk|st|kg)\.?\s*[x×]\s*(\d+,\d{2})\s*(?:eur|€)?\s*(\/\s*kg)?$/i;
+const PRICE_END = new RegExp("^(.*?)\\s*(-)?\\s*€?\\s?(" + AMT + ")\\s*(?:€|EUR)?\\s*(\\*?\\s*§?\\s*[A-Z]?\\s*\\d?\\s*\\*?)$");
+const QTY_LINE = /^(\d+(?:[.,]\d+)?)\s*(stk|st|kg)\.?\s*[x×]\s*(\d+[.,]\d{2})\s*(?:eur|€)?\s*(\/\s*kg)?$/i;
 const STOP = /^(summe|zu zahlen|zwischensumme|gesamtsumme|gesamtbetrag|total|zahlbetrag|betrag)\b/i;
 const SKIP_NAMES = /^(eur|mwst|steuer|netto|brutto|ust|bar|gegeben|rückgeld|kartenzahlung|visa|girocard|ec-karte|mastercard)\b/i;
 
@@ -80,12 +84,12 @@ export function parseReceipt(text) {
     const l = all[i];
     if (stopped) {
       // nach der Zwischensumme (Rossmann) kommt die tatsächlich bezahlte Summe
-      const m = l.match(/^(summe|zu zahlen|gesamtbetrag|zahlbetrag)\b[^\d-]*(-?\d{1,4}(?:\.\d{3})*,\d{2})/i);
+      const m = l.match(new RegExp("^(summe|zu zahlen|gesamtbetrag|zahlbetrag)\\b[^\\d-]*(-?(?:" + AMT + "))", "i"));
       if (m && total == null) total = cents(m[2]);
       continue;
     }
     if (STOP.test(l)) {
-      const m = l.match(/(-?\d{1,4}(?:\.\d{3})*,\d{2})/);
+      const m = l.match(new RegExp("(-?(?:" + AMT + "))"));
       if (m) { if (/^zwischensumme/i.test(l)) sub = cents(m[1]); else total = cents(m[1]); }
       if (lines.length) stopped = true;
       continue;
@@ -114,12 +118,12 @@ export function parseReceipt(text) {
     const e = name.match(/^(\d{8,14})\s+(.+)$/); if (e) { ean = e[1]; name = e[2]; }
     let qty = 1, unit = "stk", unitPrice = price;
     // Menge vorne (dm): „2x 1,65 H-Bio Alpenmilch“
-    const pre = name.match(/^(\d+)\s*[x×]\s*(\d+,\d{2})\s+(.+)$/i);
+    const pre = name.match(/^(\d+)\s*[x×]\s*(\d+[.,]\d{2})\s+(.+)$/i);
     if (pre) { qty = +pre[1]; unitPrice = cents(pre[2]); name = pre[3]; }
     // Menge hinten (Lidl): „Kiwi Gold 0,49 x 2“
-    const post = name.match(/^(.+?)\s+(\d+,\d{2})\s*[x×]\s*(\d+)$/i);
+    const post = name.match(/^(.+?)\s+(\d+[.,]\d{2})\s*[x×]\s*(\d+)$/i);
     if (post) { name = post[1]; unitPrice = cents(post[2]); qty = +post[3]; }
-    const post2 = name.match(/^(.+?)\s+(\d+)\s*[x×]\s*(\d+,\d{2})$/i);
+    const post2 = name.match(/^(.+?)\s+(\d+)\s*[x×]\s*(\d+[.,]\d{2})$/i);
     if (!post && post2) { name = post2[1]; qty = +post2[2]; unitPrice = cents(post2[3]); }
     name = name.replace(/\s+\d+\s*(stk|st)\.?$/i, "").trim();
     if (!name) continue;

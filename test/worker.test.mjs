@@ -464,6 +464,9 @@ test("Kassenzettel lesen: Lidl, dm und Rossmann", () => {
   assert.equal(ro.total, 940); assert.equal(ro.sub, 1040); assert.equal(ro.sum, 1040);
   assert.deepEqual(ro.lines.map(x => [x.ean, x.raw, x.price]), [["4068134245397", "BABYDR. PFLAUME-BA", 45], ["4001638590464", "WELEDA HYDRATING B", 995]]);
   assert.equal(rawKey("BIO  KOERN. FRISCH"), "bio koern.frisch");
+  // Bilderkennung liefert manchmal eine Tabelle mit Punkt statt Komma
+  const md = parseReceipt("**LIDL**\n| Artikel | Preis |\n|---|---|\n| Bio Avocado 2Stück | 2.29 A |\n| Lidl Plus Rabatt | -0.34 |\n| Schnittlauch | 0.89 A |\n| Fusilli | 0.69 A |\n| Preisvorteil | -0.35 |\n- Doritos Sweet Chili 1.11 A\n| zu zahlen | 6.28 |\n21.11.26 13:05");
+  assert.deepEqual([md.shop, md.total, md.sum, md.lines.map(l => l.raw + " " + l.price).join("; ")], ["Lidl", 628, 429, "Bio Avocado 2Stück 195; Schnittlauch 89; Fusilli 34; Doritos Sweet Chili 111"]);
   const ik = parseReceipt("IKEA Deutschland GmbH & Co. KG\nEinrichtungshaus Köln-Godorf\nKALLAX Regal 49,99 A\nFRAKTA Tasche 0,99 A\nSumme 50,98\n18.11.2026 17:42");
   assert.deepEqual([ik.shop, ik.total, ik.lines.length, ik.at], ["IKEA", 5098, 2, "2026-11-18T17:42"]);
 });

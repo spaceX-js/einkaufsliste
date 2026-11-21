@@ -29,9 +29,16 @@ export async function receiptApi(request, env, settings, url, h) {
       return h.json({ error: "Bild konnte nicht übertragen werden." }, 400);
     let text = "";
     try { text = (await Promise.all(imgs.map(img => ocr(env, img)))).join("\n"); }
-    catch (e) { return h.json({ error: "Das Foto konnte nicht gelesen werden: " + (e && e.message || e) }, 502); }
+    catch (e) {
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ocr_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(JSON.stringify({ at: new Date().toISOString(), parts: imgs.length, error: String(e && e.message || e).slice(0, 500) })).run().catch(() => {});
+      return h.json({ error: "Das Foto konnte nicht gelesen werden: " + (e && e.message || e) }, 502);
+    }
     const r = await withAliases(env, parseReceipt(text));
     r.text = text.slice(0, 20000);
+    // letzte Bilderkennung merken (nur zur Fehlersuche, wird jedes Mal überschrieben)
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ocr_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .bind(JSON.stringify({ at: new Date().toISOString(), parts: imgs.length, lines: r.lines.length, text: text.slice(0, 6000) })).run().catch(() => {});
     return h.json(r);
   }
 
